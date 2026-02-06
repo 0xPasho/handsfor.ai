@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1770155960276,
+      "tag": "0000_sharp_mindworm",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1770253898733,
+      "tag": "0001_red_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770340000000,
+      "tag": "0002_rename_agents_to_users",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1770430000000,
+      "tag": "0003_schema_update_task_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770520000000,
+      "tag": "0004_add_external_wallet_address",
+      "breakpoints": true
+    }
+  ]
+}
