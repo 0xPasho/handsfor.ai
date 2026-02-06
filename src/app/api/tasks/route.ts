@@ -3,11 +3,11 @@ import { withX402 } from "@x402/next";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { registerExactEvmScheme } from "@x402/evm/exact/server";
 import { decodePaymentSignatureHeader } from "@x402/core/http";
-import { eq, and, type SQL } from "drizzle-orm";
+import { eq, and, sql, type SQL } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { PrivyClient } from "@privy-io/node";
 import { db } from "@/modules/db";
-import { users, tasks } from "@/modules/db/schema";
+import { users, tasks, applications } from "@/modules/db/schema";
 import { serverData } from "@/modules/general/utils/server-constants";
 import { type Address } from "viem";
 import { depositAndAllocateForUser, depositAndAllocateForUserTestnet } from "@/modules/yellow/server/funds";
@@ -56,9 +56,15 @@ async function handleCreateTaskTestnet(req: NextRequest, amountUsdc: string): Pr
   const user = existingUser;
 
   let description: string | undefined;
+  let tags: string[] = [];
+  let deadlineHours: number | undefined;
+  let competitionMode = true;
   try {
     const body = await req.json();
     description = body.description;
+    tags = Array.isArray(body.tags) ? body.tags : [];
+    deadlineHours = body.deadline_hours;
+    if (body.competition_mode === false) competitionMode = false;
   } catch {
     // no body is fine
   }
@@ -80,6 +86,10 @@ async function handleCreateTaskTestnet(req: NextRequest, amountUsdc: string): Pr
     amount: amountUsdc,
   });
 
+  const deadline = deadlineHours
+    ? new Date(Date.now() + deadlineHours * 60 * 60 * 1000)
+    : undefined;
+
   const [task] = await db
     .insert(tasks)
     .values({
@@ -87,6 +97,9 @@ async function handleCreateTaskTestnet(req: NextRequest, amountUsdc: string): Pr
       amount: amountUsdc,
       status: "open",
       description,
+      tags,
+      deadline,
+      competitionMode,
       appSessionId,
     })
     .returning();
@@ -192,9 +205,15 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
   }
 
   let description: string | undefined;
+  let tags: string[] = [];
+  let deadlineHours: number | undefined;
+  let competitionMode = true;
   try {
     const body = await req.json();
     description = body.description;
+    tags = Array.isArray(body.tags) ? body.tags : [];
+    deadlineHours = body.deadline_hours;
+    if (body.competition_mode === false) competitionMode = false;
   } catch {
     // no body or invalid JSON is fine
   }
@@ -213,6 +232,10 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
     amount: amountUsdc,
   });
 
+  const deadline = deadlineHours
+    ? new Date(Date.now() + deadlineHours * 60 * 60 * 1000)
+    : undefined;
+
   const [task] = await db
     .insert(tasks)
     .values({
@@ -220,6 +243,9 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
       amount: amountUsdc,
       status: "open",
       description,
+      tags,
+      deadline,
+      competitionMode,
       appSessionId,
     })
     .returning();
@@ -266,10 +292,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Count applications per task
+  const taskIds = results.map((t) => t.id);
+  const appCountMap: Record<string, number> = {};
+  if (taskIds.length > 0) {
+    const { inArray } = await import("drizzle-orm");
+    const counts = await db
+      .select({
+        taskId: applications.taskId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(applications)
+      .where(inArray(applications.taskId, taskIds))
+      .groupBy(applications.taskId);
+    for (const c of counts) {
+      appCountMap[c.taskId] = c.count;
+    }
+  }
+
   const enriched = results.map((t) => ({
     ...t,
     creatorWallet: walletMap[t.creatorId] || null,
     acceptorWallet: t.acceptorId ? walletMap[t.acceptorId] || null : null,
+    applicationCount: appCountMap[t.id] || 0,
   }));
 
   return NextResponse.json({ tasks: enriched });
