@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 
+type ParticipantIdentity = {
+  username?: string | null;
+  ens_name?: string | null;
+  base_name?: string | null;
+  active_identity?: string | null;
+  wallet_address?: string | null;
+};
+
 export type Task = {
   id: string;
   amount: string;
@@ -21,6 +29,8 @@ export type Task = {
   completedAt: string | null;
   creatorWallet: string | null;
   acceptorWallet: string | null;
+  creator?: ParticipantIdentity | null;
+  acceptor?: ParticipantIdentity | null;
 };
 
 export type UserData = {
@@ -32,7 +42,6 @@ export type UserData = {
   api_key: string;
   is_new: boolean;
   tasks: Task[];
-  display_name: string | null;
   bio: string | null;
   location: string | null;
   tags: string[];
@@ -41,6 +50,12 @@ export type UserData = {
   github_handle: string | null;
   website_url: string | null;
   hourly_rate: string | null;
+  username: string | null;
+  ens_name: string | null;
+  ens_avatar: string | null;
+  base_name: string | null;
+  base_avatar: string | null;
+  active_identity: string | null;
 };
 
 export function useUser() {

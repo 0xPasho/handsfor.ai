@@ -316,5 +316,77 @@ export function createMcpServer(user: User): McpServer {
     },
   );
 
+  server.tool(
+    "send_message",
+    "Send a message to a worker on your task. Each worker has a separate conversation.",
+    {
+      task_id: z.string().describe("The task ID (UUID)"),
+      participant_id: z.string().describe("The worker's user ID (UUID) — from their application"),
+      content: z.string().describe("The message to send"),
+    },
+    async ({ task_id, participant_id, content }) => {
+      try {
+        const result = await tools.sendMessage(user as never, {
+          task_id,
+          participant_id,
+          content,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to send message"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "get_messages",
+    "Get the conversation with a worker on your task.",
+    {
+      task_id: z.string().describe("The task ID (UUID)"),
+      participant_id: z.string().describe("The worker's user ID (UUID)"),
+    },
+    async ({ task_id, participant_id }) => {
+      try {
+        const result = await tools.getMessages(user as never, {
+          task_id,
+          participant_id,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to get messages"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
   return server;
 }

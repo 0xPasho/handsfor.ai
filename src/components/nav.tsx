@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { useUser } from "@/hooks/use-user";
 import { truncAddr } from "@/lib/format";
+import { getDisplayName, getInitials } from "@/lib/identity";
 import { Button } from "@/modules/shared/components/ui/button";
 import {
   Avatar,
@@ -18,16 +21,24 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/modules/shared/components/ui/dropdown-menu";
-import { User, LayoutDashboard, LogOut } from "lucide-react";
+import { User, LayoutDashboard, LogOut, Menu, X } from "lucide-react";
+
+const NAV_LINKS = [
+  { href: "/tasks", label: "Tasks" },
+  { href: "/humans", label: "Humans" },
+  { href: "/docs", label: "Docs" },
+];
 
 export function Nav() {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { user: userData } = useUser();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
 
   const walletAddress = user?.wallet?.address;
 
-  const initials = userData?.display_name
-    ? userData.display_name.charAt(0).toUpperCase()
+  const initials = userData
+    ? getInitials(userData)
     : walletAddress
       ? walletAddress.slice(2, 4).toUpperCase()
       : "?";
@@ -40,27 +51,26 @@ export function Nav() {
             handsfor.ai
           </Link>
           <nav className="hidden items-center gap-6 sm:flex">
-            <Link
-              href="/tasks"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Tasks
-            </Link>
-            <Link
-              href="/humans"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Humans
-            </Link>
-            <Link
-              href="/docs"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Docs
-            </Link>
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground sm:hidden"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
+          </button>
           {!ready ? null : authenticated ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -69,14 +79,14 @@ export function Nav() {
                     {userData?.avatar_url ? (
                       <AvatarImage
                         src={userData.avatar_url}
-                        alt={userData.display_name || "Avatar"}
+                        alt="Avatar"
                       />
                     ) : null}
                     <AvatarFallback>{initials}</AvatarFallback>
                   </Avatar>
                   <div className="hidden sm:flex sm:flex-col sm:items-start">
                     <span className="text-xs font-medium leading-tight">
-                      {userData?.display_name || truncAddr(walletAddress || "")}
+                      {userData ? getDisplayName(userData) : truncAddr(walletAddress || "")}
                     </span>
                     <span className="text-[10px] font-medium leading-tight text-usdc">
                       ${parseFloat(userData?.balance || "0").toFixed(2)} USDC
@@ -87,9 +97,9 @@ export function Nav() {
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuLabel className="font-normal">
                   <p className="truncate text-sm font-medium">
-                    {userData?.display_name || truncAddr(walletAddress || "")}
+                    {userData ? getDisplayName(userData) : truncAddr(walletAddress || "")}
                   </p>
-                  {userData?.display_name && walletAddress && (
+                  {walletAddress && (
                     <p className="truncate text-xs font-mono text-muted-foreground">
                       {truncAddr(walletAddress)}
                     </p>
@@ -122,6 +132,28 @@ export function Nav() {
           )}
         </div>
       </div>
+
+      {/* Mobile nav panel */}
+      {mobileOpen && (
+        <div className="border-t border-border bg-background px-6 py-4 sm:hidden">
+          <nav className="flex flex-col gap-3">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setMobileOpen(false)}
+                className={`text-sm transition-colors hover:text-foreground ${
+                  pathname === link.href
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      )}
     </header>
   );
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { type Address } from "viem";
 import { db } from "@/modules/db";
-import { tasks, submissions, users } from "@/modules/db/schema";
+import { tasks, submissions, users, reviews } from "@/modules/db/schema";
 import { getAuthedTask } from "../helpers";
 import { closeTaskAppSession } from "@/modules/yellow/server/platform";
 
@@ -31,9 +31,13 @@ export async function POST(
   }
 
   let submissionId: string;
+  let rating: number;
+  let review: string | undefined;
   try {
     const body = await req.json();
     submissionId = body.submission_id;
+    rating = body.rating;
+    review = body.review;
   } catch {
     return NextResponse.json(
       { error: "Invalid request body" },
@@ -44,6 +48,13 @@ export async function POST(
   if (!submissionId) {
     return NextResponse.json(
       { error: "submission_id is required" },
+      { status: 400 },
+    );
+  }
+
+  if (!rating || rating < 1 || rating > 5 || !Number.isInteger(rating)) {
+    return NextResponse.json(
+      { error: "rating is required (integer 1-5)" },
       { status: 400 },
     );
   }
@@ -103,6 +114,15 @@ export async function POST(
       completedAt: new Date(),
     })
     .where(eq(tasks.id, task.id));
+
+  // Save review
+  await db.insert(reviews).values({
+    taskId: task.id,
+    reviewerId: user.id,
+    revieweeId: submission.workerId,
+    rating: String(rating),
+    comment: review?.trim() || null,
+  });
 
   return NextResponse.json({
     task_id: task.id,

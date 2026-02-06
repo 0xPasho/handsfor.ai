@@ -1,7 +1,17 @@
 import Link from "next/link";
 import { StatusBadge } from "@/components/status-badge";
 import { timeAgo, truncAddr } from "@/lib/format";
+import { getDisplayName } from "@/lib/identity";
+import { stripMarkdown } from "@/lib/markdown";
 import { Clock, Users } from "lucide-react";
+
+type CreatorIdentity = {
+  username?: string | null;
+  ens_name?: string | null;
+  base_name?: string | null;
+  active_identity?: string | null;
+  wallet_address?: string | null;
+};
 
 type TaskCardProps = {
   id: string;
@@ -13,6 +23,7 @@ type TaskCardProps = {
   creatorWallet?: string | null;
   deadline?: string | null;
   applicationCount?: number;
+  creator?: CreatorIdentity | null;
 };
 
 export function TaskCard({
@@ -25,6 +36,7 @@ export function TaskCard({
   creatorWallet,
   deadline,
   applicationCount = 0,
+  creator,
 }: TaskCardProps) {
   const value = parseFloat(amount).toFixed(2);
   const isUrgent =
@@ -59,7 +71,7 @@ export function TaskCard({
 
       {/* Description */}
       <p className="mt-3 flex-1 text-sm leading-relaxed text-foreground/80 line-clamp-3">
-        {description || "No description provided"}
+        {description ? stripMarkdown(description) : "No description provided"}
       </p>
 
       {/* Footer */}
@@ -82,8 +94,12 @@ export function TaskCard({
           </span>
         )}
 
-        <span className="ml-auto font-mono">
-          {creatorWallet ? truncAddr(creatorWallet) : ""}
+        <span className="ml-auto font-mono text-xs">
+          {creator
+            ? getDisplayName(creator)
+            : creatorWallet
+              ? truncAddr(creatorWallet)
+              : ""}
         </span>
       </div>
     </Link>

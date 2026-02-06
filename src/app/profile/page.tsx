@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useUser } from "@/hooks/use-user";
 import {
@@ -11,19 +12,28 @@ import {
 } from "@/modules/shared/components/ui/avatar";
 import { Button } from "@/modules/shared/components/ui/button";
 import { Input } from "@/modules/shared/components/ui/input";
-import { Textarea } from "@/modules/shared/components/ui/textarea";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { Separator } from "@/modules/shared/components/ui/separator";
 import { Skeleton } from "@/modules/shared/components/ui/skeleton";
 import { TagInput } from "@/components/tag-input";
+import { getDisplayName, getInitials } from "@/lib/identity";
 import { truncAddr } from "@/lib/format";
-import { MapPin, Globe, DollarSign } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/modules/shared/components/ui/select";
+import { MapPin, Globe, DollarSign, LayoutDashboard, Check, X, Loader2 } from "lucide-react";
+
+type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
 export default function ProfilePage() {
   const router = useRouter();
   const { ready, authenticated, getToken } = useAuth();
   const { user, loading, error, refetch } = useUser();
 
-  const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [location, setLocation] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -32,6 +42,11 @@ export default function ProfilePage() {
   const [githubHandle, setGithubHandle] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [hourlyRate, setHourlyRate] = useState("");
+  const [username, setUsername] = useState("");
+  const [activeIdentity, setActiveIdentity] = useState("username");
+
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
+  const checkTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -45,7 +60,6 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (user) {
-      setDisplayName(user.display_name || "");
       setBio(user.bio || "");
       setLocation(user.location || "");
       setTags(user.tags || []);
@@ -54,8 +68,45 @@ export default function ProfilePage() {
       setGithubHandle(user.github_handle || "");
       setWebsiteUrl(user.website_url || "");
       setHourlyRate(user.hourly_rate || "");
+      setUsername(user.username || "");
+      setActiveIdentity(user.active_identity || "username");
     }
   }, [user]);
+
+  // Live username availability check
+  const checkUsername = useCallback((value: string) => {
+    if (checkTimeout.current) clearTimeout(checkTimeout.current);
+    const uname = value.toLowerCase();
+    if (!uname || uname.length < 3) {
+      setUsernameStatus("idle");
+      return;
+    }
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(uname)) {
+      setUsernameStatus("invalid");
+      return;
+    }
+    // If same as current username, no need to check
+    if (user?.username === uname) {
+      setUsernameStatus("available");
+      return;
+    }
+    setUsernameStatus("checking");
+    checkTimeout.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/users/check-username?username=${encodeURIComponent(uname)}`);
+        const data = await res.json();
+        setUsernameStatus(data.available ? "available" : "taken");
+      } catch {
+        setUsernameStatus("idle");
+      }
+    }, 400);
+  }, [user?.username]);
+
+  const handleUsernameChange = (value: string) => {
+    const cleaned = value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    setUsername(cleaned);
+    checkUsername(cleaned);
+  };
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -70,7 +121,6 @@ export default function ProfilePage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          display_name: displayName || null,
           bio: bio || null,
           location: location || null,
           tags,
@@ -79,6 +129,8 @@ export default function ProfilePage() {
           github_handle: githubHandle || null,
           website_url: websiteUrl || null,
           hourly_rate: hourlyRate || null,
+          username: username || null,
+          active_identity: activeIdentity,
         }),
       });
       if (!res.ok) {
@@ -94,7 +146,6 @@ export default function ProfilePage() {
       setSaving(false);
     }
   }, [
-    displayName,
     bio,
     location,
     tags,
@@ -103,6 +154,8 @@ export default function ProfilePage() {
     githubHandle,
     websiteUrl,
     hourlyRate,
+    username,
+    activeIdentity,
     getToken,
     refetch,
   ]);
@@ -132,28 +185,47 @@ export default function ProfilePage() {
     );
   }
 
+  const identityOptions: { key: string; label: string; value: string | null }[] = [
+    { key: "username", label: "Username", value: username || null },
+  ];
+  if (user.ens_name) {
+    identityOptions.push({ key: "ens", label: "ENS", value: user.ens_name });
+  }
+  if (user.base_name) {
+    identityOptions.push({ key: "base", label: "Base", value: user.base_name });
+  }
+
   return (
     <div className="mx-auto max-w-[720px] px-6 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Your public profile on Hands for AI.
-      </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your public profile on Hands for AI.
+          </p>
+        </div>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground"
+        >
+          <LayoutDashboard className="size-3.5" />
+          Dashboard
+        </Link>
+      </div>
 
       {/* Avatar + name header */}
       <div className="mt-8 flex items-center gap-4">
         <Avatar className="size-16">
           {avatarUrl ? (
-            <AvatarImage src={avatarUrl} alt={displayName || "Avatar"} />
+            <AvatarImage src={avatarUrl} alt={username || "Avatar"} />
           ) : null}
           <AvatarFallback className="text-lg">
-            {displayName
-              ? displayName.charAt(0).toUpperCase()
-              : user.wallet_address.slice(2, 4).toUpperCase()}
+            {getInitials(user)}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">
-            {displayName || truncAddr(user.wallet_address)}
+            {getDisplayName(user)}
           </p>
           <p className="truncate text-xs font-mono text-muted-foreground">
             {truncAddr(user.wallet_address)}
@@ -165,25 +237,81 @@ export default function ProfilePage() {
 
       {/* Form */}
       <div className="space-y-6">
-        <Field label="Display Name">
-          <Input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="How others see you"
-            maxLength={50}
-          />
+        {/* Username — primary identity */}
+        <Field label="Username">
+          <div className="relative">
+            <Input
+              value={username}
+              onChange={(e) => handleUsernameChange(e.target.value)}
+              placeholder="your-username"
+              maxLength={30}
+              className="pr-8 font-mono"
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+              {usernameStatus === "checking" && (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              )}
+              {usernameStatus === "available" && (
+                <Check className="size-4 text-green-600" />
+              )}
+              {usernameStatus === "taken" && (
+                <X className="size-4 text-destructive" />
+              )}
+              {usernameStatus === "invalid" && (
+                <X className="size-4 text-orange-500" />
+              )}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {username
+              ? `${username}.handsfor.ai`
+              : "Claim your unique URL: username.handsfor.ai"}
+          </p>
+          {usernameStatus === "taken" && (
+            <p className="mt-0.5 text-xs text-destructive">Username is taken</p>
+          )}
+          {usernameStatus === "invalid" && (
+            <p className="mt-0.5 text-xs text-orange-500">
+              3-30 chars, lowercase letters, numbers, hyphens
+            </p>
+          )}
         </Field>
 
-        <Field label="Bio">
-          <Textarea
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="A brief intro..."
-            maxLength={500}
-          />
-          <p className="mt-1 text-right text-xs text-muted-foreground">
-            {bio.length}/500
+        {/* Public display identity picker */}
+        <Field label="Public Display Name">
+          <Select value={activeIdentity} onValueChange={setActiveIdentity}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choose display identity" />
+            </SelectTrigger>
+            <SelectContent>
+              {identityOptions.map((opt) => (
+                <SelectItem key={opt.key} value={opt.key}>
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground mr-2">
+                    {opt.label}
+                  </span>
+                  {opt.value || "Not set"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {identityOptions.length === 1
+              ? "Connect a wallet with an ENS or Base name to unlock more identity options."
+              : "This is the name shown everywhere on the platform."}
           </p>
+        </Field>
+
+        <Separator />
+
+        <Field label="Bio">
+          <MarkdownEditor
+            value={bio}
+            onChange={setBio}
+            placeholder="A brief intro... (supports markdown)"
+            maxLength={500}
+            rows={3}
+            variant="light"
+          />
         </Field>
 
         <Field label="Location" icon={<MapPin className="size-3" />}>
@@ -215,6 +343,11 @@ export default function ProfilePage() {
             placeholder="https://..."
             type="url"
           />
+          {(user.ens_avatar || user.base_avatar) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Leave blank to use your {user.ens_avatar ? "ENS" : "Base"} avatar automatically.
+            </p>
+          )}
         </Field>
 
         <Field

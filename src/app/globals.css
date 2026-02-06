@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @theme inline {
   --color-background: var(--background);
@@ -63,4 +64,46 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Monochrome prose overrides for markdown rendering */
+.prose-handsfor {
+  --tw-prose-body: #27272a;
+  --tw-prose-headings: #18181b;
+  --tw-prose-lead: #52525b;
+  --tw-prose-links: #18181b;
+  --tw-prose-bold: #18181b;
+  --tw-prose-counters: #71717a;
+  --tw-prose-bullets: #a1a1aa;
+  --tw-prose-hr: #e4e4e7;
+  --tw-prose-quotes: #27272a;
+  --tw-prose-quote-borders: #e4e4e7;
+  --tw-prose-captions: #71717a;
+  --tw-prose-code: #18181b;
+  --tw-prose-pre-code: #d4d4d8;
+  --tw-prose-pre-bg: #18181b;
+  --tw-prose-th-borders: #d4d4d8;
+  --tw-prose-td-borders: #e4e4e7;
+}
+
+.prose-handsfor a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-handsfor pre {
+  border-radius: 0.375rem;
+}
+
+.prose-handsfor code:not(pre code) {
+  background-color: #f4f4f5;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+
+.prose-handsfor img {
+  border-radius: 0.375rem;
+  max-height: 300px;
+  object-fit: contain;
 }

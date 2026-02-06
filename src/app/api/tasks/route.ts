@@ -12,6 +12,8 @@ import { serverData } from "@/modules/general/utils/server-constants";
 import { type Address } from "viem";
 import { depositAndAllocateForUser, depositAndAllocateForUserTestnet } from "@/modules/yellow/server/funds";
 import { createInitialTaskSession } from "@/modules/yellow/server/platform";
+import { generateUniqueUsername } from "@/modules/identity/username";
+import { resolveAllIdentities } from "@/modules/identity/resolve";
 
 const privy = new PrivyClient({
   appId: serverData.environment.PRIVY_APP_ID,
@@ -67,6 +69,10 @@ async function handleCreateTaskTestnet(req: NextRequest, amountUsdc: string): Pr
     if (body.competition_mode === false) competitionMode = false;
   } catch {
     // no body is fine
+  }
+
+  if (description && description.length > 5000) {
+    return NextResponse.json({ error: "Description must be 5000 characters or less" }, { status: 400 });
   }
 
   // Deposit USDC from user's server wallet into Yellow custody (platform sponsors gas).
@@ -163,6 +169,7 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
     });
 
     const apiKey = `sk_${randomBytes(32).toString("hex")}`;
+    const username = await generateUniqueUsername();
     const [inserted] = await db
       .insert(users)
       .values({
@@ -172,10 +179,32 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
         externalWalletAddress: payerAddress,
         apiKey,
         balance: "0",
+        username,
       })
       .returning();
     user = inserted;
     isNewUser = true;
+
+    // Fire-and-forget ENS/Base resolution for new x402 users
+    resolveAllIdentities(payerAddress as Address).then(async (result) => {
+      try {
+        const identityUpdates: Record<string, string | null> = {};
+        if (result.ens) {
+          identityUpdates.ensName = result.ens.name;
+          identityUpdates.ensAvatar = result.ens.avatar;
+          identityUpdates.activeIdentity = "ens";
+        } else if (result.baseName) {
+          identityUpdates.baseName = result.baseName.name;
+          identityUpdates.baseAvatar = result.baseName.avatar;
+          identityUpdates.activeIdentity = "base";
+        }
+        if (Object.keys(identityUpdates).length > 0) {
+          await db.update(users).set(identityUpdates).where(eq(users.id, inserted.id));
+        }
+      } catch {
+        // identity resolution failed, continue
+      }
+    }).catch(() => {});
   }
 
   if (!user.privyWalletId) {
@@ -216,6 +245,10 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
     if (body.competition_mode === false) competitionMode = false;
   } catch {
     // no body or invalid JSON is fine
+  }
+
+  if (description && description.length > 5000) {
+    return NextResponse.json({ error: "Description must be 5000 characters or less" }, { status: 400 });
   }
 
   await depositAndAllocateForUser({
@@ -280,15 +313,34 @@ export async function GET(req: NextRequest) {
     if (t.acceptorId) participantIds.add(t.acceptorId);
   }
 
-  const walletMap: Record<string, string> = {};
+  const participantMap: Record<string, {
+    walletAddress: string;
+    username: string | null;
+    ensName: string | null;
+    baseName: string | null;
+    activeIdentity: string | null;
+  }> = {};
   if (participantIds.size > 0) {
     const { or } = await import("drizzle-orm");
     const participants = await db
-      .select({ id: users.id, walletAddress: users.walletAddress })
+      .select({
+        id: users.id,
+        walletAddress: users.walletAddress,
+        username: users.username,
+        ensName: users.ensName,
+        baseName: users.baseName,
+        activeIdentity: users.activeIdentity,
+      })
       .from(users)
       .where(or(...[...participantIds].map((pid) => eq(users.id, pid))));
     for (const p of participants) {
-      walletMap[p.id] = p.walletAddress;
+      participantMap[p.id] = {
+        walletAddress: p.walletAddress,
+        username: p.username,
+        ensName: p.ensName,
+        baseName: p.baseName,
+        activeIdentity: p.activeIdentity,
+      };
     }
   }
 
@@ -312,9 +364,16 @@ export async function GET(req: NextRequest) {
 
   const enriched = results.map((t) => ({
     ...t,
-    creatorWallet: walletMap[t.creatorId] || null,
-    acceptorWallet: t.acceptorId ? walletMap[t.acceptorId] || null : null,
+    creatorWallet: participantMap[t.creatorId]?.walletAddress || null,
+    acceptorWallet: t.acceptorId ? participantMap[t.acceptorId]?.walletAddress || null : null,
     applicationCount: appCountMap[t.id] || 0,
+    creator: participantMap[t.creatorId] ? {
+      username: participantMap[t.creatorId].username,
+      ens_name: participantMap[t.creatorId].ensName,
+      base_name: participantMap[t.creatorId].baseName,
+      active_identity: participantMap[t.creatorId].activeIdentity,
+      wallet_address: participantMap[t.creatorId].walletAddress,
+    } : null,
   }));
 
   return NextResponse.json({ tasks: enriched });

@@ -7,12 +7,11 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const search = url.searchParams.get("search");
 
-  // Only return users who have a display name or bio (i.e. have set up a profile)
+  // Only return users who have a username or bio set up
   const results = await db
     .select({
       id: users.id,
       walletAddress: users.walletAddress,
-      displayName: users.displayName,
       bio: users.bio,
       location: users.location,
       tags: users.tags,
@@ -22,9 +21,15 @@ export async function GET(req: NextRequest) {
       githubHandle: users.githubHandle,
       websiteUrl: users.websiteUrl,
       createdAt: users.createdAt,
+      username: users.username,
+      ensName: users.ensName,
+      ensAvatar: users.ensAvatar,
+      baseName: users.baseName,
+      baseAvatar: users.baseAvatar,
+      activeIdentity: users.activeIdentity,
     })
     .from(users)
-    .where(sql`${users.displayName} IS NOT NULL OR ${users.bio} IS NOT NULL`);
+    .where(sql`${users.username} IS NOT NULL OR ${users.bio} IS NOT NULL`);
 
   // Count completed tasks per user (as worker — winning submissions)
   const userIds = results.map((u) => u.id);
@@ -68,7 +73,9 @@ export async function GET(req: NextRequest) {
     const q = search.toLowerCase();
     filtered = results.filter(
       (u) =>
-        u.displayName?.toLowerCase().includes(q) ||
+        u.username?.toLowerCase().includes(q) ||
+        u.ensName?.toLowerCase().includes(q) ||
+        u.baseName?.toLowerCase().includes(q) ||
         u.bio?.toLowerCase().includes(q) ||
         u.location?.toLowerCase().includes(q) ||
         (u.tags || []).some((t: string) => t.toLowerCase().includes(q)),
@@ -78,7 +85,6 @@ export async function GET(req: NextRequest) {
   const enriched = filtered.map((u) => ({
     id: u.id,
     wallet_address: u.walletAddress,
-    display_name: u.displayName,
     bio: u.bio,
     location: u.location,
     tags: u.tags || [],
@@ -90,6 +96,12 @@ export async function GET(req: NextRequest) {
     created_at: u.createdAt,
     tasks_created: taskCountMap[u.id] || 0,
     applications_made: applicationCountMap[u.id] || 0,
+    username: u.username || null,
+    ens_name: u.ensName || null,
+    ens_avatar: u.ensAvatar || null,
+    base_name: u.baseName || null,
+    base_avatar: u.baseAvatar || null,
+    active_identity: u.activeIdentity || "username",
   }));
 
   return NextResponse.json({ users: enriched });

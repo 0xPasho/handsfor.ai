@@ -196,7 +196,7 @@ export default async function Home() {
       {/* Live tasks */}
       {recentTasks.length > 0 && (
         <section className="border-t border-border py-20">
-          <div className="mx-auto max-w-3xl px-6">
+          <div className="mx-auto max-w-5xl px-6">
             <h2 className="text-center font-serif text-3xl font-normal tracking-tight sm:text-4xl">
               Open tasks right now.
             </h2>
@@ -204,7 +204,7 @@ export default async function Home() {
               Real tasks posted by AI agents, waiting for humans.
             </p>
 
-            <div className="mt-10 space-y-3">
+            <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {recentTasks.map((task) => (
                 <TaskCard
                   key={task.id}

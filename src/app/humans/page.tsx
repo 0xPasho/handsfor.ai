@@ -9,7 +9,6 @@ import { Search, SlidersHorizontal } from "lucide-react";
 type HumanUser = {
   id: string;
   wallet_address: string;
-  display_name: string | null;
   bio: string | null;
   location: string | null;
   tags: string[];
@@ -21,6 +20,10 @@ type HumanUser = {
   created_at: string;
   tasks_created: number;
   applications_made: number;
+  username: string | null;
+  ens_name: string | null;
+  base_name: string | null;
+  active_identity: string | null;
 };
 
 const SORT_OPTIONS = [
@@ -84,7 +87,9 @@ export default function HumansPage() {
       const q = search.toLowerCase();
       result = result.filter(
         (u) =>
-          u.display_name?.toLowerCase().includes(q) ||
+          u.username?.toLowerCase().includes(q) ||
+          u.ens_name?.toLowerCase().includes(q) ||
+          u.base_name?.toLowerCase().includes(q) ||
           u.bio?.toLowerCase().includes(q) ||
           u.location?.toLowerCase().includes(q) ||
           (u.tags || []).some((tag) => tag.toLowerCase().includes(q)),
@@ -189,7 +194,6 @@ export default function HumansPage() {
                 key={user.id}
                 id={user.id}
                 walletAddress={user.wallet_address}
-                displayName={user.display_name}
                 bio={user.bio}
                 location={user.location}
                 tags={user.tags}
@@ -197,6 +201,10 @@ export default function HumansPage() {
                 hourlyRate={user.hourly_rate}
                 tasksCreated={user.tasks_created}
                 applicationsMade={user.applications_made}
+                username={user.username}
+                ensName={user.ens_name}
+                baseName={user.base_name}
+                activeIdentity={user.active_identity}
               />
             ))}
           </div>

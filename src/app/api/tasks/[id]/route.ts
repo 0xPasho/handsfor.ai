@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/modules/db";
-import { tasks, users, submissions, applications } from "@/modules/db/schema";
+import { tasks, users, submissions, applications, reviews } from "@/modules/db/schema";
+import { getDisplayName } from "@/lib/identity";
 
 export async function GET(
   _req: NextRequest,
@@ -21,16 +22,30 @@ export async function GET(
 
   // Load creator info
   const [creator] = await db
-    .select({ id: users.id, walletAddress: users.walletAddress })
+    .select({
+      id: users.id,
+      walletAddress: users.walletAddress,
+      username: users.username,
+      ensName: users.ensName,
+      baseName: users.baseName,
+      activeIdentity: users.activeIdentity,
+    })
     .from(users)
     .where(eq(users.id, task.creatorId))
     .limit(1);
 
   // Load acceptor info if present
-  let acceptor = null;
+  let acceptor: typeof creator | null = null;
   if (task.acceptorId) {
     const [a] = await db
-      .select({ id: users.id, walletAddress: users.walletAddress })
+      .select({
+        id: users.id,
+        walletAddress: users.walletAddress,
+        username: users.username,
+        ensName: users.ensName,
+        baseName: users.baseName,
+        activeIdentity: users.activeIdentity,
+      })
       .from(users)
       .where(eq(users.id, task.acceptorId))
       .limit(1);
@@ -54,16 +69,39 @@ export async function GET(
       status: applications.status,
       createdAt: applications.createdAt,
       reviewedAt: applications.reviewedAt,
-      displayName: users.displayName,
       avatarUrl: users.avatarUrl,
       tags: users.tags,
       hourlyRate: users.hourlyRate,
       bio: users.bio,
       location: users.location,
+      username: users.username,
+      ensName: users.ensName,
+      ensAvatar: users.ensAvatar,
+      baseName: users.baseName,
+      baseAvatar: users.baseAvatar,
+      activeIdentity: users.activeIdentity,
     })
     .from(applications)
     .innerJoin(users, eq(applications.applicantId, users.id))
     .where(eq(applications.taskId, id));
+
+  // Load review for this task (if completed)
+  const taskReviews = await db
+    .select({
+      id: reviews.id,
+      rating: reviews.rating,
+      comment: reviews.comment,
+      createdAt: reviews.createdAt,
+      reviewerWallet: users.walletAddress,
+      reviewerId: reviews.reviewerId,
+      reviewerUsername: users.username,
+      reviewerEnsName: users.ensName,
+      reviewerBaseName: users.baseName,
+      reviewerActiveIdentity: users.activeIdentity,
+    })
+    .from(reviews)
+    .innerJoin(users, eq(reviews.reviewerId, users.id))
+    .where(eq(reviews.taskId, id));
 
   return NextResponse.json({
     id: task.id,
@@ -78,10 +116,24 @@ export async function GET(
     acceptorId: task.acceptorId,
     appSessionId: task.appSessionId,
     creator: creator
-      ? { id: creator.id, wallet_address: creator.walletAddress }
+      ? {
+          id: creator.id,
+          wallet_address: creator.walletAddress,
+          username: creator.username || null,
+          ens_name: creator.ensName || null,
+          base_name: creator.baseName || null,
+          active_identity: creator.activeIdentity || "username",
+        }
       : null,
     acceptor: acceptor
-      ? { id: acceptor.id, wallet_address: acceptor.walletAddress }
+      ? {
+          id: acceptor.id,
+          wallet_address: acceptor.walletAddress,
+          username: acceptor.username || null,
+          ens_name: acceptor.ensName || null,
+          base_name: acceptor.baseName || null,
+          active_identity: acceptor.activeIdentity || "username",
+        }
       : null,
     creatorWallet: creator?.walletAddress || null,
     acceptorWallet: acceptor?.walletAddress || null,
@@ -116,14 +168,36 @@ export async function GET(
       created_at: a.createdAt,
       reviewed_at: a.reviewedAt,
       applicant: {
-        display_name: a.displayName || null,
         avatar_url: a.avatarUrl || null,
         tags: a.tags || [],
         hourly_rate: a.hourlyRate || null,
         bio: a.bio || null,
         location: a.location || null,
+        username: a.username || null,
+        ens_name: a.ensName || null,
+        ens_avatar: a.ensAvatar || null,
+        base_name: a.baseName || null,
+        base_avatar: a.baseAvatar || null,
+        active_identity: a.activeIdentity || "username",
       },
     })),
     application_count: taskApplications.length,
+    review: taskReviews.length > 0
+      ? {
+          id: taskReviews[0].id,
+          rating: Number(taskReviews[0].rating),
+          comment: taskReviews[0].comment,
+          created_at: taskReviews[0].createdAt,
+          reviewer_name: getDisplayName({
+            username: taskReviews[0].reviewerUsername,
+            ensName: taskReviews[0].reviewerEnsName,
+            baseName: taskReviews[0].reviewerBaseName,
+            activeIdentity: taskReviews[0].reviewerActiveIdentity,
+            walletAddress: taskReviews[0].reviewerWallet,
+          }),
+          reviewer_wallet: taskReviews[0].reviewerWallet,
+          reviewer_id: taskReviews[0].reviewerId,
+        }
+      : null,
   });
 }

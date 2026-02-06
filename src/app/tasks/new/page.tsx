@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { UsdcAmount } from "@/components/usdc-amount";
 import { TagPill } from "@/components/tag-pill";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { Button } from "@/modules/shared/components/ui/button";
 import { Separator } from "@/modules/shared/components/ui/separator";
 import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
@@ -36,7 +37,7 @@ export default function CreateTaskPage() {
   const [tagInput, setTagInput] = useState("");
   const [hasDeadline, setHasDeadline] = useState(false);
   const [deadlineHours, setDeadlineHours] = useState<number | null>(null);
-  const [multiWorker, setMultiWorker] = useState(true);
+  const [multiWorker, setMultiWorker] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -147,17 +148,18 @@ export default function CreateTaskPage() {
         <label className="text-[11px] uppercase tracking-wider text-muted-foreground">
           What do you need?
         </label>
-        <div className="mt-2 overflow-hidden rounded-md bg-zinc-900">
-          <textarea
+        <div className="mt-2">
+          <MarkdownEditor
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             placeholder="Describe what you need a human to do..."
             rows={4}
-            className="w-full resize-none bg-transparent px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none"
+            maxLength={5000}
+            variant="dark"
           />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Be specific. Include location, timing, and what counts as proof.
+          Be specific. Include location, timing, and what counts as proof. Markdown supported.
         </p>
         <div className="mt-3">
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -287,29 +289,26 @@ export default function CreateTaskPage() {
       <Separator className="my-8" />
 
       {/* Section 4: Competition settings */}
-      <div>
+      <div className="opacity-50">
         <div className="flex items-center justify-between">
-          <label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          <label className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground">
             Allow multiple submissions
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground">
+              Soon
+            </span>
           </label>
           <button
             type="button"
-            onClick={() => setMultiWorker(!multiWorker)}
-            className={`relative h-5 w-9 rounded-full transition-colors ${
-              multiWorker ? "bg-foreground" : "bg-border"
-            }`}
+            disabled
+            className="relative h-5 w-9 cursor-not-allowed rounded-full bg-border"
           >
             <span
-              className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
-                multiWorker ? "translate-x-4" : ""
-              }`}
+              className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white"
             />
           </button>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          {multiWorker
-            ? "Multiple workers can submit. You pick the best one."
-            : "First worker to accept gets the exclusive job."}
+          Multiple workers can submit and you pick the best one.
         </p>
       </div>
 

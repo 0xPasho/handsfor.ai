@@ -1,4 +1,7 @@
+import Link from "next/link";
 import { truncAddr } from "@/lib/format";
+import { getDisplayName, getInitials } from "@/lib/identity";
+import { stripMarkdown } from "@/lib/markdown";
 import {
   Avatar,
   AvatarImage,
@@ -9,7 +12,6 @@ import { MapPin, DollarSign, Briefcase } from "lucide-react";
 type UserCardProps = {
   id: string;
   walletAddress: string;
-  displayName: string | null;
   bio: string | null;
   location: string | null;
   tags: string[];
@@ -17,11 +19,15 @@ type UserCardProps = {
   hourlyRate: string | null;
   tasksCreated: number;
   applicationsMade: number;
+  username?: string | null;
+  ensName?: string | null;
+  baseName?: string | null;
+  activeIdentity?: string | null;
 };
 
 export function UserCard({
+  id,
   walletAddress,
-  displayName,
   bio,
   location,
   tags,
@@ -29,26 +35,32 @@ export function UserCard({
   hourlyRate,
   tasksCreated,
   applicationsMade,
+  username,
+  ensName,
+  baseName,
+  activeIdentity,
 }: UserCardProps) {
-  const initials = displayName
-    ? displayName.charAt(0).toUpperCase()
-    : walletAddress.slice(2, 4).toUpperCase();
+  const identity = { username, ensName, baseName, activeIdentity, walletAddress };
+  const initials = getInitials(identity);
 
   const totalActivity = tasksCreated + applicationsMade;
 
   return (
-    <div className="group flex flex-col rounded-lg border border-border bg-card p-5 transition-all hover:border-foreground/20 hover:shadow-sm">
+    <Link
+      href={`/humans/${id}`}
+      className="group flex flex-col rounded-lg border border-border bg-card p-5 transition-all hover:border-foreground/20 hover:shadow-sm"
+    >
       {/* Top: avatar + name */}
       <div className="flex items-start gap-3">
         <Avatar>
           {avatarUrl ? (
-            <AvatarImage src={avatarUrl} alt={displayName || "User"} />
+            <AvatarImage src={avatarUrl} alt={getDisplayName(identity)} />
           ) : null}
           <AvatarFallback>{initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium truncate">
-            {displayName || truncAddr(walletAddress)}
+            {getDisplayName(identity)}
           </p>
           <p className="text-xs font-mono text-muted-foreground">
             {truncAddr(walletAddress)}
@@ -59,7 +71,7 @@ export function UserCard({
       {/* Bio */}
       {bio ? (
         <p className="mt-3 flex-1 text-sm leading-relaxed text-foreground/80 line-clamp-2">
-          {bio}
+          {stripMarkdown(bio)}
         </p>
       ) : (
         <div className="mt-3 flex-1" />
@@ -111,6 +123,6 @@ export function UserCard({
           <span>New member</span>
         )}
       </div>
-    </div>
+    </Link>
   );
 }

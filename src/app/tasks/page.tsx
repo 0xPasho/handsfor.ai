@@ -13,6 +13,13 @@ type TaskWithExtras = Task & {
   tags?: string[];
   deadline?: string | null;
   applicationCount?: number;
+  creator?: {
+    username?: string | null;
+    ens_name?: string | null;
+    base_name?: string | null;
+    active_identity?: string | null;
+    wallet_address?: string | null;
+  } | null;
 };
 
 const SORT_OPTIONS = [
@@ -208,6 +215,7 @@ export default function TasksPage() {
                 creatorWallet={task.creatorWallet}
                 deadline={task.deadline}
                 applicationCount={task.applicationCount}
+                creator={task.creator}
               />
             ))}
           </div>

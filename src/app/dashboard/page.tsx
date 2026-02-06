@@ -11,6 +11,13 @@ import { Button } from "@/modules/shared/components/ui/button";
 import { Input } from "@/modules/shared/components/ui/input";
 import { Skeleton } from "@/modules/shared/components/ui/skeleton";
 import { Separator } from "@/modules/shared/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/modules/shared/components/ui/dialog";
 import { truncAddr } from "@/lib/format";
 import { Wallet, ArrowUpRight, Key } from "lucide-react";
 import type { Task } from "@/hooks/use-user";
@@ -28,6 +35,7 @@ export default function DashboardPage() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -58,6 +66,7 @@ export default function DashboardPage() {
       }
       setWithdrawAmount("");
       setWithdrawAddr("");
+      setWithdrawOpen(false);
       await refetch();
     } catch (err) {
       setWithdrawError(
@@ -74,7 +83,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-[720px] px-6 py-10">
+      <div className="mx-auto max-w-5xl px-6 py-10">
         <Skeleton className="mb-6 h-8 w-40" />
         <Skeleton className="h-32 w-full mb-4" />
         <Skeleton className="h-20 w-full mb-4" />
@@ -85,7 +94,7 @@ export default function DashboardPage() {
 
   if (error || !user) {
     return (
-      <div className="mx-auto max-w-[720px] px-6 py-10 text-center">
+      <div className="mx-auto max-w-5xl px-6 py-10 text-center">
         <p className="text-sm text-destructive">{error || "Failed to load"}</p>
         <Button variant="outline" size="sm" className="mt-4" onClick={refetch}>
           Retry
@@ -120,7 +129,7 @@ export default function DashboardPage() {
   ).length;
 
   return (
-    <div className="mx-auto max-w-[720px] px-6 py-10">
+    <div className="mx-auto max-w-5xl px-6 py-10">
       <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
 
       {/* Balance card */}
@@ -157,58 +166,92 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-2">
-          <span className="text-xs font-mono text-muted-foreground">
-            {truncAddr(user.wallet_address)}
-          </span>
-          <CopyButton text={user.wallet_address} />
-        </div>
-      </div>
-
-      {/* Withdraw section */}
-      <div className="mt-4 rounded-md border border-border bg-card p-5">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-          Withdraw
-        </p>
-        <div className="flex gap-2">
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Amount (USDC)"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(e.target.value)}
-            className="flex-1"
-          />
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-muted-foreground">
+              {truncAddr(user.wallet_address)}
+            </span>
+            <CopyButton text={user.wallet_address} />
+          </div>
           <Button
             size="sm"
             variant="outline"
-            onClick={handleWithdraw}
-            disabled={withdrawing || !withdrawAmount || !withdrawAddr}
+            onClick={() => setWithdrawOpen(true)}
           >
             <ArrowUpRight className="size-3.5" />
-            {withdrawing ? "..." : "Withdraw"}
+            Withdraw
           </Button>
         </div>
-        <Input
-          type="text"
-          placeholder="Destination address (0x...)"
-          value={withdrawAddr}
-          onChange={(e) => setWithdrawAddr(e.target.value)}
-          className="mt-2 font-mono text-xs"
-        />
-        {!withdrawAddr && (
-          <button
-            onClick={() => setWithdrawAddr(user.wallet_address)}
-            className="mt-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            Use my wallet ({truncAddr(user.wallet_address)})
-          </button>
-        )}
-        {withdrawError && (
-          <p className="mt-2 text-xs text-destructive">{withdrawError}</p>
-        )}
       </div>
+
+      {/* Withdraw modal */}
+      <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Withdraw USDC</DialogTitle>
+            <DialogDescription>
+              Transfer USDC from your platform balance to an external wallet.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">
+                Amount
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00 USDC"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Available: ${parseFloat(user.balance).toFixed(2)} USDC
+              </p>
+            </div>
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">
+                Destination Address
+              </label>
+              <Input
+                type="text"
+                placeholder="0x..."
+                value={withdrawAddr}
+                onChange={(e) => setWithdrawAddr(e.target.value)}
+                className="font-mono text-xs"
+              />
+              {!withdrawAddr && (
+                <button
+                  onClick={() => setWithdrawAddr(user.wallet_address)}
+                  className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Use my wallet ({truncAddr(user.wallet_address)})
+                </button>
+              )}
+            </div>
+            {withdrawError && (
+              <p className="text-xs text-destructive">{withdrawError}</p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setWithdrawOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleWithdraw}
+              disabled={withdrawing || !withdrawAmount || !withdrawAddr}
+            >
+              {withdrawing ? "Withdrawing..." : "Withdraw"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Quick stats */}
       <div className="mt-6 grid grid-cols-4 gap-3">
@@ -247,19 +290,22 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-4 flex flex-col gap-3">
+      <div className="mt-4">
         {tabTasks[tab].length > 0 ? (
-          tabTasks[tab].map((task) => (
-            <TaskCard
-              key={task.id}
-              id={task.id}
-              description={task.description}
-              amount={task.amount}
-              status={task.status}
-              createdAt={task.createdAt}
-              creatorWallet={task.creatorWallet}
-            />
-          ))
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {tabTasks[tab].map((task) => (
+              <TaskCard
+                key={task.id}
+                id={task.id}
+                description={task.description}
+                amount={task.amount}
+                status={task.status}
+                createdAt={task.createdAt}
+                creatorWallet={task.creatorWallet}
+                creator={task.creator}
+              />
+            ))}
+          </div>
         ) : (
           <p className="py-8 text-center text-sm text-muted-foreground">
             No tasks here yet.

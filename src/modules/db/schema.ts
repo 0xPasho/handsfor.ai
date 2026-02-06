@@ -18,6 +18,12 @@ export const users = pgTable("users", {
   githubHandle: text("github_handle"),
   websiteUrl: text("website_url"),
   hourlyRate: numeric("hourly_rate"),
+  username: text("username").unique(),
+  ensName: text("ens_name"),
+  ensAvatar: text("ens_avatar"),
+  baseName: text("base_name"),
+  baseAvatar: text("base_avatar"),
+  activeIdentity: text("active_identity").default("username"),
 });
 
 export const tasks = pgTable("tasks", {
@@ -69,6 +75,37 @@ export const applications = pgTable("applications", {
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
+});
+
+export const messages = pgTable("messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => tasks.id),
+  participantId: uuid("participant_id")
+    .notNull()
+    .references(() => users.id),
+  senderId: uuid("sender_id")
+    .notNull()
+    .references(() => users.id),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const reviews = pgTable("reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id")
+    .notNull()
+    .references(() => tasks.id),
+  reviewerId: uuid("reviewer_id")
+    .notNull()
+    .references(() => users.id),
+  revieweeId: uuid("reviewee_id")
+    .notNull()
+    .references(() => users.id),
+  rating: numeric("rating").notNull(),
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const yellowSessions = pgTable("yellow_sessions", {

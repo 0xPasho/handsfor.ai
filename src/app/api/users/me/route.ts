@@ -8,6 +8,9 @@ import { serverData } from "@/modules/general/utils/server-constants";
 import { getUsdcBalance } from "@/modules/evm/balance";
 import { getYellowUnifiedBalance } from "@/modules/yellow/server/balance";
 import { authenticateUser } from "@/modules/users/auth";
+import { resolveAllIdentities } from "@/modules/identity/resolve";
+import { generateUniqueUsername } from "@/modules/identity/username";
+import type { Address } from "viem";
 
 const privy = new PrivyClient({
   appId: serverData.environment.PRIVY_APP_ID,
@@ -30,6 +33,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid access token" }, { status: 401 });
   }
 
+  // Fetch the Privy user to get their external (login) wallet address
+  const privyUser = await privy.users()._get(privyUserId);
+  // Find the external wallet (not embedded) — embedded wallets have connector_type: 'embedded'
+  const externalWallet = privyUser.linked_accounts?.find(
+    (a) =>
+      a.type === "wallet" &&
+      "address" in a &&
+      (!("connector_type" in a) || a.connector_type !== "embedded"),
+  ) as { address: string } | undefined;
+  const externalAddress = externalWallet?.address?.toLowerCase() || null;
+
   // Check if user already exists by privyUserId
   const [existingUser] = await db
     .select()
@@ -49,18 +63,63 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
 
     const apiKey = `sk_${randomBytes(32).toString("hex")}`;
+    const username = await generateUniqueUsername();
     const [inserted] = await db
       .insert(users)
       .values({
         walletAddress: wallet.address,
         privyWalletId: wallet.id,
         privyUserId,
+        externalWalletAddress: externalAddress,
         apiKey,
         balance: "0",
+        username,
       })
       .returning();
     user = inserted;
     isNewUser = true;
+  }
+
+  // Backfill external wallet address if not set
+  if (!user.externalWalletAddress && externalAddress) {
+    await db.update(users).set({ externalWalletAddress: externalAddress }).where(eq(users.id, user.id));
+    user = { ...user, externalWalletAddress: externalAddress };
+  }
+
+  // Backfill username for existing users without one
+  if (!user.username) {
+    const username = await generateUniqueUsername();
+    await db.update(users).set({ username }).where(eq(users.id, user.id));
+    user = { ...user, username };
+  }
+
+  // Resolve ENS/Base identities against the external (login) wallet
+  const resolveAddress = (user.externalWalletAddress || user.walletAddress) as Address;
+  if (!user.ensName && !user.baseName) {
+    try {
+      const result = await resolveAllIdentities(resolveAddress);
+      const updates: Record<string, string | null> = {};
+      if (result.ens) {
+        updates.ensName = result.ens.name;
+        updates.ensAvatar = result.ens.avatar;
+      }
+      if (result.baseName) {
+        updates.baseName = result.baseName.name;
+        updates.baseAvatar = result.baseName.avatar;
+      }
+      // Auto-set activeIdentity if user still has the default and a name was found
+      const isAutoUsername = user.username && /^human-[a-z0-9]+$/.test(user.username);
+      if (isAutoUsername && (!user.activeIdentity || user.activeIdentity === "username")) {
+        if (result.ens) updates.activeIdentity = "ens";
+        else if (result.baseName) updates.activeIdentity = "base";
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.update(users).set(updates).where(eq(users.id, user.id));
+        user = { ...user, ...updates };
+      }
+    } catch {
+      // resolution failed, continue without ENS/Base
+    }
   }
 
   // Get all tasks where user is creator OR acceptor
@@ -76,21 +135,54 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (t.acceptorId) participantIds.add(t.acceptorId);
   }
 
-  const walletMap: Record<string, string> = {};
+  const participantMap: Record<string, {
+    walletAddress: string;
+    username: string | null;
+    ensName: string | null;
+    baseName: string | null;
+    activeIdentity: string | null;
+  }> = {};
   if (participantIds.size > 0) {
     const participants = await db
-      .select({ id: users.id, walletAddress: users.walletAddress })
+      .select({
+        id: users.id,
+        walletAddress: users.walletAddress,
+        username: users.username,
+        ensName: users.ensName,
+        baseName: users.baseName,
+        activeIdentity: users.activeIdentity,
+      })
       .from(users)
       .where(or(...[...participantIds].map((pid) => eq(users.id, pid))));
     for (const p of participants) {
-      walletMap[p.id] = p.walletAddress;
+      participantMap[p.id] = {
+        walletAddress: p.walletAddress,
+        username: p.username,
+        ensName: p.ensName,
+        baseName: p.baseName,
+        activeIdentity: p.activeIdentity,
+      };
     }
   }
 
   const enrichedTasks = userTasks.map((t) => ({
     ...t,
-    creatorWallet: walletMap[t.creatorId] || null,
-    acceptorWallet: t.acceptorId ? walletMap[t.acceptorId] || null : null,
+    creatorWallet: participantMap[t.creatorId]?.walletAddress || null,
+    acceptorWallet: t.acceptorId ? participantMap[t.acceptorId]?.walletAddress || null : null,
+    creator: participantMap[t.creatorId] ? {
+      username: participantMap[t.creatorId].username,
+      ens_name: participantMap[t.creatorId].ensName,
+      base_name: participantMap[t.creatorId].baseName,
+      active_identity: participantMap[t.creatorId].activeIdentity,
+      wallet_address: participantMap[t.creatorId].walletAddress,
+    } : null,
+    acceptor: t.acceptorId && participantMap[t.acceptorId] ? {
+      username: participantMap[t.acceptorId].username,
+      ens_name: participantMap[t.acceptorId].ensName,
+      base_name: participantMap[t.acceptorId].baseName,
+      active_identity: participantMap[t.acceptorId].activeIdentity,
+      wallet_address: participantMap[t.acceptorId].walletAddress,
+    } : null,
   }));
 
   // Fetch on-chain USDC balance and Yellow balance in parallel
@@ -110,7 +202,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     api_key: user.apiKey,
     is_new: isNewUser,
     tasks: enrichedTasks,
-    display_name: user.displayName || null,
     bio: user.bio || null,
     location: user.location || null,
     tags: user.tags || [],
@@ -119,11 +210,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     github_handle: user.githubHandle || null,
     website_url: user.websiteUrl || null,
     hourly_rate: user.hourlyRate || null,
+    username: user.username || null,
+    ens_name: user.ensName || null,
+    ens_avatar: user.ensAvatar || null,
+    base_name: user.baseName || null,
+    base_avatar: user.baseAvatar || null,
+    active_identity: user.activeIdentity || "username",
   });
 }
 
 const PROFILE_FIELDS: Record<string, string> = {
-  display_name: "displayName",
   bio: "bio",
   location: "location",
   tags: "tags",
@@ -132,6 +228,8 @@ const PROFILE_FIELDS: Record<string, string> = {
   github_handle: "githubHandle",
   website_url: "websiteUrl",
   hourly_rate: "hourlyRate",
+  username: "username",
+  active_identity: "activeIdentity",
 };
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
@@ -159,11 +257,6 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
   }
 
   // Validation
-  if (updates.displayName !== undefined && updates.displayName !== null) {
-    if (typeof updates.displayName !== "string" || (updates.displayName as string).length > 50) {
-      return NextResponse.json({ error: "display_name must be a string (max 50 chars)" }, { status: 400 });
-    }
-  }
   if (updates.bio !== undefined && updates.bio !== null) {
     if (typeof updates.bio !== "string" || (updates.bio as string).length > 500) {
       return NextResponse.json({ error: "bio must be a string (max 500 chars)" }, { status: 400 });
@@ -185,6 +278,35 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     updates.hourlyRate = String(rate);
   }
 
+  // Username validation
+  if (updates.username !== undefined && updates.username !== null) {
+    const uname = String(updates.username).toLowerCase();
+    if (uname.length < 3 || uname.length > 30) {
+      return NextResponse.json({ error: "Username must be 3-30 characters" }, { status: 400 });
+    }
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(uname)) {
+      return NextResponse.json({ error: "Username must be lowercase alphanumeric (hyphens allowed in middle)" }, { status: 400 });
+    }
+    // Check uniqueness
+    const [existing] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, uname))
+      .limit(1);
+    if (existing && existing.id !== auth.user.id) {
+      return NextResponse.json({ error: "Username is already taken" }, { status: 409 });
+    }
+    updates.username = uname;
+  }
+
+  // Active identity validation
+  if (updates.activeIdentity !== undefined && updates.activeIdentity !== null) {
+    const valid = ["username", "ens", "base"];
+    if (!valid.includes(String(updates.activeIdentity))) {
+      return NextResponse.json({ error: "active_identity must be one of: username, ens, base" }, { status: 400 });
+    }
+  }
+
   const [updated] = await db
     .update(users)
     .set(updates)
@@ -193,7 +315,6 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     user_id: updated.id,
-    display_name: updated.displayName,
     bio: updated.bio,
     location: updated.location,
     tags: updated.tags || [],
@@ -202,5 +323,11 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     github_handle: updated.githubHandle,
     website_url: updated.websiteUrl,
     hourly_rate: updated.hourlyRate,
+    username: updated.username || null,
+    ens_name: updated.ensName || null,
+    ens_avatar: updated.ensAvatar || null,
+    base_name: updated.baseName || null,
+    base_avatar: updated.baseAvatar || null,
+    active_identity: updated.activeIdentity || "username",
   });
 }

@@ -31,12 +31,15 @@ export async function GET(
       status: applications.status,
       createdAt: applications.createdAt,
       reviewedAt: applications.reviewedAt,
-      displayName: users.displayName,
       avatarUrl: users.avatarUrl,
       tags: users.tags,
       hourlyRate: users.hourlyRate,
       bio: users.bio,
       location: users.location,
+      username: users.username,
+      ensName: users.ensName,
+      baseName: users.baseName,
+      activeIdentity: users.activeIdentity,
     })
     .from(applications)
     .innerJoin(users, eq(applications.applicantId, users.id))
@@ -53,12 +56,15 @@ export async function GET(
       created_at: r.createdAt,
       reviewed_at: r.reviewedAt,
       applicant: {
-        display_name: r.displayName || null,
         avatar_url: r.avatarUrl || null,
         tags: r.tags || [],
         hourly_rate: r.hourlyRate || null,
         bio: r.bio || null,
         location: r.location || null,
+        username: r.username || null,
+        ens_name: r.ensName || null,
+        base_name: r.baseName || null,
+        active_identity: r.activeIdentity || "username",
       },
     })),
   });

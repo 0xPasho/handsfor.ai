@@ -1,12 +1,13 @@
 import { eq, and, type SQL } from "drizzle-orm";
 import { type Address } from "viem";
 import { db } from "@/modules/db";
-import { users, tasks, submissions, applications } from "@/modules/db/schema";
+import { users, tasks, submissions, applications, messages } from "@/modules/db/schema";
 import { createInitialTaskSession, closeTaskAppSession, cancelInitialSession } from "@/modules/yellow/server/platform";
 import { depositAndAllocateForUserTestnet } from "@/modules/yellow/server/funds";
 import { getYellowUnifiedBalance } from "@/modules/yellow/server/balance";
 import { getUsdcBalance } from "@/modules/evm/balance";
 import { serverData } from "@/modules/general/utils/server-constants";
+import { getDisplayName } from "@/lib/identity";
 
 type User = typeof users.$inferSelect;
 
@@ -112,9 +113,12 @@ export async function getTask(args: { task_id: string }) {
       message: applications.message,
       status: applications.status,
       createdAt: applications.createdAt,
-      displayName: users.displayName,
       tags: users.tags,
       hourlyRate: users.hourlyRate,
+      username: users.username,
+      ensName: users.ensName,
+      baseName: users.baseName,
+      activeIdentity: users.activeIdentity,
     })
     .from(applications)
     .innerJoin(users, eq(applications.applicantId, users.id))
@@ -147,7 +151,13 @@ export async function getTask(args: { task_id: string }) {
       status: a.status,
       created_at: a.createdAt,
       applicant: {
-        display_name: a.displayName || null,
+        name: getDisplayName({
+          username: a.username,
+          ensName: a.ensName,
+          baseName: a.baseName,
+          activeIdentity: a.activeIdentity,
+          walletAddress: a.applicantWallet,
+        }),
         tags: a.tags || [],
         hourly_rate: a.hourlyRate || null,
       },
@@ -281,10 +291,13 @@ export async function listApplications(
       message: applications.message,
       status: applications.status,
       createdAt: applications.createdAt,
-      displayName: users.displayName,
       tags: users.tags,
       hourlyRate: users.hourlyRate,
       bio: users.bio,
+      username: users.username,
+      ensName: users.ensName,
+      baseName: users.baseName,
+      activeIdentity: users.activeIdentity,
     })
     .from(applications)
     .innerJoin(users, eq(applications.applicantId, users.id))
@@ -300,7 +313,13 @@ export async function listApplications(
       status: r.status,
       created_at: r.createdAt,
       applicant: {
-        display_name: r.displayName || null,
+        name: getDisplayName({
+          username: r.username,
+          ensName: r.ensName,
+          baseName: r.baseName,
+          activeIdentity: r.activeIdentity,
+          walletAddress: r.applicantWallet,
+        }),
         tags: r.tags || [],
         hourly_rate: r.hourlyRate || null,
         bio: r.bio || null,
@@ -388,6 +407,99 @@ export async function rejectApplicant(
     application_id: updated.id,
     applicant_wallet: updated.applicantWallet,
     status: updated.status,
+  };
+}
+
+export async function sendMessage(
+  user: User,
+  args: { task_id: string; participant_id: string; content: string },
+) {
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, args.task_id))
+    .limit(1);
+
+  if (!task) throw new Error("Task not found");
+  if (task.creatorId !== user.id)
+    throw new Error("Only the task creator can send messages via MCP");
+
+  const { asc } = await import("drizzle-orm");
+
+  const [msg] = await db
+    .insert(messages)
+    .values({
+      taskId: args.task_id,
+      participantId: args.participant_id,
+      senderId: user.id,
+      content: args.content.trim(),
+    })
+    .returning();
+
+  return {
+    id: msg.id,
+    task_id: msg.taskId,
+    participant_id: msg.participantId,
+    sender_id: msg.senderId,
+    content: msg.content,
+    created_at: msg.createdAt,
+  };
+}
+
+export async function getMessages(
+  user: User,
+  args: { task_id: string; participant_id: string },
+) {
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, args.task_id))
+    .limit(1);
+
+  if (!task) throw new Error("Task not found");
+  if (task.creatorId !== user.id)
+    throw new Error("Only the task creator can read messages via MCP");
+
+  const { asc } = await import("drizzle-orm");
+
+  const rows = await db
+    .select({
+      id: messages.id,
+      senderId: messages.senderId,
+      content: messages.content,
+      createdAt: messages.createdAt,
+      senderWallet: users.walletAddress,
+      senderUsername: users.username,
+      senderEnsName: users.ensName,
+      senderBaseName: users.baseName,
+      senderActiveIdentity: users.activeIdentity,
+    })
+    .from(messages)
+    .innerJoin(users, eq(messages.senderId, users.id))
+    .where(
+      and(
+        eq(messages.taskId, args.task_id),
+        eq(messages.participantId, args.participant_id),
+      ),
+    )
+    .orderBy(asc(messages.createdAt));
+
+  return {
+    task_id: args.task_id,
+    participant_id: args.participant_id,
+    messages: rows.map((m) => ({
+      id: m.id,
+      sender_id: m.senderId,
+      sender_name: getDisplayName({
+        username: m.senderUsername,
+        ensName: m.senderEnsName,
+        baseName: m.senderBaseName,
+        activeIdentity: m.senderActiveIdentity,
+        walletAddress: m.senderWallet,
+      }),
+      content: m.content,
+      created_at: m.createdAt,
+    })),
   };
 }
 

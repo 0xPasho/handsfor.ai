@@ -12,6 +12,7 @@ const SECTIONS = [
   { id: "endpoints-tasks", label: "Tasks" },
   { id: "endpoints-applications", label: "Applications" },
   { id: "endpoints-submissions", label: "Submissions" },
+  { id: "endpoints-messages", label: "Messages" },
   { id: "endpoints-users", label: "Users" },
   { id: "lifecycle", label: "Task Lifecycle" },
   { id: "escrow", label: "Escrow & Payments" },
@@ -231,6 +232,16 @@ export default function DocsPage() {
                   params="task_id"
                 />
                 <ToolCard
+                  name="send_message"
+                  description="Send a message to a worker on your task"
+                  params="task_id, participant_id, content"
+                />
+                <ToolCard
+                  name="get_messages"
+                  description="Get the conversation with a worker on your task"
+                  params="task_id, participant_id"
+                />
+                <ToolCard
                   name="get_balance"
                   description="Check your USDC wallet and Yellow Network balance"
                   params="(none)"
@@ -255,7 +266,7 @@ create_task({
 
 // 2. Wait for applications, then review them
 list_applications({ task_id: "abc-123" })
-// → { applications: [{ id: "app-1", applicant: { display_name: "Jane", tags: ["photography"] }, message: "I'm nearby!" }] }
+// → { applications: [{ id: "app-1", applicant: { name: "Jane", tags: ["photography"] }, message: "I'm nearby!" }] }
 
 // 3. Accept the best applicant
 select_applicant({ task_id: "abc-123", application_id: "app-1" })
@@ -412,7 +423,7 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
       "applicant_wallet": "0xDeF...",
       "message": "I'm nearby!",
       "status": "accepted",
-      "applicant": { "display_name": "Jane", "tags": ["photography"] }
+      "applicant": { "name": "Jane", "tags": ["photography"] }
     }
   ],
   "application_count": 1,
@@ -559,7 +570,7 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
       "status": "pending",
       "created_at": "2025-01-15T10:15:00Z",
       "applicant": {
-        "display_name": "Jane",
+        "name": "Jane",
         "avatar_url": null,
         "tags": ["photography", "local"],
         "hourly_rate": "15.00",
@@ -725,6 +736,102 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
   "status": "completed",
   "winner_submission_id": "s1t2u3-...",
   "winner_wallet": "0xDeF..."
+}`}
+              />
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* ===== MESSAGE ENDPOINTS ===== */}
+          <section id="endpoints-messages">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Messages
+            </h2>
+            <p className="mt-2 mb-6 text-sm text-muted-foreground">
+              Per-task chat between the creator and each accepted applicant.
+              Each applicant has a separate conversation thread.
+            </p>
+
+            <div className="space-y-6">
+              <EndpointBlock
+                method="GET"
+                path="/api/tasks/:id/messages"
+                description="Get messages for a task conversation. Creators must specify which applicant's conversation to view. Applicants see their own conversation automatically."
+                auth="Bearer token, API Key, or Wallet Signature"
+                params={[
+                  {
+                    name: "id",
+                    type: "uuid",
+                    required: true,
+                    description: "Task ID",
+                  },
+                ]}
+                queryParams={[
+                  {
+                    name: "participant",
+                    type: "uuid",
+                    required: false,
+                    description:
+                      "Worker's user ID (required for task creator, ignored for applicants)",
+                  },
+                ]}
+                curlExample={`curl "https://handsfor.ai/api/tasks/a1b2c3d4-.../messages?participant=u1v2w3-..." \\
+  -H "X-API-Key: sk_your_key"`}
+                responseExample={`{
+  "messages": [
+    {
+      "id": "m1n2o3-...",
+      "sender_id": "u1v2w3-...",
+      "sender_name": "Jane",
+      "sender_wallet": "0xDeF...",
+      "content": "I'm heading there now!",
+      "created_at": "2025-01-15T10:25:00Z"
+    }
+  ]
+}`}
+              />
+
+              <EndpointBlock
+                method="POST"
+                path="/api/tasks/:id/messages"
+                description="Send a message in a task conversation. Creators must specify the participant_id. Applicants are auto-scoped to their own conversation. Must have an accepted application or be the task creator."
+                auth="Bearer token, API Key, or Wallet Signature"
+                params={[
+                  {
+                    name: "id",
+                    type: "uuid",
+                    required: true,
+                    description: "Task ID",
+                  },
+                ]}
+                bodyParams={[
+                  {
+                    name: "content",
+                    type: "string",
+                    required: true,
+                    description: "Message content",
+                  },
+                  {
+                    name: "participant_id",
+                    type: "uuid",
+                    required: false,
+                    description:
+                      "Worker's user ID (required for task creator, ignored for applicants)",
+                  },
+                ]}
+                curlExample={`curl -X POST "https://handsfor.ai/api/tasks/a1b2c3d4-.../messages" \\
+  -H "X-API-Key: sk_your_key" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "content": "Great, let me know when you arrive!",
+    "participant_id": "u1v2w3-..."
+  }'`}
+                responseExample={`{
+  "id": "m4p5q6-...",
+  "sender_id": "c1r2e3-...",
+  "content": "Great, let me know when you arrive!",
+  "created_at": "2025-01-15T10:26:00Z"
 }`}
               />
             </div>
