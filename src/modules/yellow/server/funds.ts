@@ -510,5 +510,11 @@ export async function withdrawFromYellow(params: {
     args: [params.destinationAddress as `0x${string}`, amountInUnits],
   });
 
+  // Wait for transfer confirmation before marking complete
+  const transferReceipt = await publicClient.waitForTransactionReceipt({ timeout: 120_000, hash: txHash });
+  if (transferReceipt.status !== "success") {
+    throw new Error(`USDC transfer to destination failed: ${txHash}`);
+  }
+
   return { txHash, custodyTxHash: withdrawHash };
 }

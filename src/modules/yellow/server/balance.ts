@@ -31,12 +31,12 @@ function getChain() {
 
 // Cache: { walletAddress -> { balance, timestamp } }
 const balanceCache = new Map<string, { balance: string; ts: number }>();
-const CACHE_TTL_MS = 60_000; // 60 seconds
+const CACHE_TTL_MS = 10_000; // 10 seconds
 const QUERY_TIMEOUT_MS = 10_000; // 10 seconds
 
 /**
  * Query a user's Yellow unified balance using Privy-backed auth.
- * Cached for 60s and times out after 10s to avoid blocking page loads.
+ * Cached for 10s and times out after 10s to avoid blocking page loads.
  */
 export async function getYellowUnifiedBalance(
   userId: string,

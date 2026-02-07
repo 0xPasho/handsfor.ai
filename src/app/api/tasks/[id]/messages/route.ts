@@ -115,6 +115,13 @@ export async function POST(
     );
   }
 
+  if (body.content.length > 10000) {
+    return NextResponse.json(
+      { error: "Message too long (max 10,000 characters)" },
+      { status: 400 },
+    );
+  }
+
   let participantId: string;
 
   if (isCreator) {

@@ -42,6 +42,9 @@ Based on this information, decide who wins the dispute.
 
 Respond with ONLY one line in the format above.`;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -53,10 +56,12 @@ Respond with ONLY one line in the format above.`;
         messages: [{ role: "user", content: prompt }],
         max_tokens: 50,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
-      console.error("AI dispute resolution failed:", await response.text());
+      console.error("AI dispute resolution failed");
       return { resolution: "creator_wins" };
     }
 
@@ -72,8 +77,9 @@ Respond with ONLY one line in the format above.`;
       if (validSubmission) {
         return { resolution: "acceptor_wins", winnerSubmissionId: validSubmission.id };
       }
-      // AI said acceptor wins but gave invalid ID — pick first submission
-      return { resolution: "acceptor_wins", winnerSubmissionId: params.submissions[0].id };
+      // AI gave invalid submission ID — default to creator wins for safety
+      console.error(`AI dispute returned invalid submission ID: ${submissionId}`);
+      return { resolution: "creator_wins" };
     }
 
     return { resolution: "creator_wins" };

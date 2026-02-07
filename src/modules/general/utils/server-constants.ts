@@ -11,7 +11,7 @@ const environment = {
   PRIVY_AUTHORIZATION_PRIVATE_KEY: process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY!,
   PRIVY_AUTHORIZATION_PUBLIC_KEY: process.env.PRIVY_AUTHORIZATION_PUBLIC_KEY!,
   YELLOW_WS_URL: process.env.YELLOW_WS_URL!,
-  X402_FACILITATOR_URL: process.env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
+  X402_FACILITATOR_URL: process.env.X402_FACILITATOR_URL!,
 };
 
 const serverData = {

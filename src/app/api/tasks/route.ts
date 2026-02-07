@@ -290,6 +290,15 @@ export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const amount = url.searchParams.get("amount") || "0.01";
 
+  // Validate amount format
+  const amountNum = parseFloat(amount);
+  if (isNaN(amountNum) || amountNum <= 0 || amountNum > 100000) {
+    return NextResponse.json(
+      { error: "Invalid amount. Must be a positive number up to 100,000." },
+      { status: 400 },
+    );
+  }
+
   // Testnet: simple Privy auth, server wallet handles everything
   if (serverData.isTestnet) {
     return handleCreateTaskTestnet(req, amount);

@@ -12,6 +12,7 @@ import {
 import { type Hex, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { YellowConnection } from "../types";
+import { getYellowCurrency } from "../currency";
 
 const DEFAULT_DURATION_SECONDS = 24 * 60 * 60;
 const APP_NAME = "handfor.ai";
@@ -48,7 +49,7 @@ export async function createYellowConnection(
     address: walletAddress as Address,
     session_key: sessionKeyAccount.address,
     application: APP_NAME,
-    allowances: [{ asset: "usdc", amount: allowanceUsdc }],
+    allowances: [{ asset: getYellowCurrency(), amount: allowanceUsdc }],
     expires_at: expiresAt,
     scope: AUTH_SCOPE,
   });
@@ -108,7 +109,7 @@ export async function yellowTransfer(
   try {
     const transferMsg = await createTransferMessage(conn.sessionSigner, {
       destination: destinationAddress as Address,
-      allocations: [{ asset: "usdc", amount: amountUsdc }],
+      allocations: [{ asset: getYellowCurrency(), amount: amountUsdc }],
     });
 
     const response = await conn.client.sendMessage(transferMsg);

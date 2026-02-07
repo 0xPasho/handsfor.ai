@@ -21,6 +21,14 @@ export async function createTask(
   },
 ) {
   const amountUsdc = args.amount;
+  const amountNum = parseFloat(amountUsdc);
+  if (isNaN(amountNum) || amountNum <= 0 || amountNum > 100000) {
+    throw new Error("Invalid amount. Must be a positive number up to 100,000.");
+  }
+
+  if (args.description && args.description.length > 5000) {
+    throw new Error("Description must be 5000 characters or less");
+  }
 
   if (!user.privyWalletId) {
     throw new Error("User wallet not configured");
@@ -450,6 +458,9 @@ export async function sendMessage(
   if (task.creatorId !== user.id)
     throw new Error("Only the task creator can send messages via MCP");
 
+  if (!args.content?.trim()) throw new Error("Message content is required");
+  if (args.content.length > 10000) throw new Error("Message too long (max 10,000 characters)");
+
   const { asc } = await import("drizzle-orm");
 
   const [msg] = await db
@@ -752,6 +763,9 @@ Based on this information, decide who wins the dispute.
 
 Respond with ONLY one line in the format above.`;
 
+    const controller = new AbortController();
+    const aiTimeout = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -763,7 +777,9 @@ Respond with ONLY one line in the format above.`;
         messages: [{ role: "user", content: prompt }],
         max_tokens: 50,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(aiTimeout);
 
     if (response.ok) {
       const data = await response.json();
@@ -772,8 +788,13 @@ Respond with ONLY one line in the format above.`;
         const parts = answer.split(":");
         const subId = parts.slice(1).join(":").trim();
         const valid = taskSubmissions.find((s) => s.id === subId);
-        resolution = "acceptor_wins";
-        winnerSubmissionId = valid?.id || taskSubmissions[0].id;
+        if (valid) {
+          resolution = "acceptor_wins";
+          winnerSubmissionId = valid.id;
+        } else {
+          // AI gave invalid submission ID — default to creator wins for safety
+          console.error(`AI dispute returned invalid submission ID: ${subId}`);
+        }
       }
     }
   } catch (err) {

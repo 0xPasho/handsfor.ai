@@ -3,7 +3,7 @@ import { withX402 } from "@x402/next";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { registerExactEvmScheme } from "@x402/evm/exact/server";
 import { decodePaymentSignatureHeader } from "@x402/core/http";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { PrivyClient } from "@privy-io/node";
 import { db } from "@/modules/db";
@@ -40,6 +40,26 @@ async function handleDepositTestnet(req: NextRequest, amountUsdc: string): Promi
 
   if (!user.privyWalletId) {
     return NextResponse.json({ error: "No server wallet configured" }, { status: 400 });
+  }
+
+  // Idempotency: reject if there's already a pending deposit for this user
+  const [pendingDeposit] = await db
+    .select()
+    .from(deposits)
+    .where(
+      and(
+        eq(deposits.userId, user.id),
+        eq(deposits.status, "pending"),
+        gt(deposits.createdAt, new Date(Date.now() - 60_000)),
+      ),
+    )
+    .limit(1);
+
+  if (pendingDeposit) {
+    return NextResponse.json(
+      { error: "A deposit is already in progress. Please wait.", deposit_id: pendingDeposit.id },
+      { status: 409 },
+    );
   }
 
   // Insert pending deposit
@@ -116,8 +136,22 @@ async function handleDeposit(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const amountAtomic = paymentPayload.accepted?.amount ?? "0";
+  if (!paymentPayload.accepted || !paymentPayload.accepted.amount) {
+    return NextResponse.json(
+      { error: "Payment not accepted or no amount found" },
+      { status: 400 },
+    );
+  }
+
+  const amountAtomic = paymentPayload.accepted.amount;
   const amountUsdc = (parseInt(amountAtomic, 10) / 1e6).toString();
+
+  if (parseFloat(amountUsdc) <= 0) {
+    return NextResponse.json(
+      { error: "Invalid payment amount" },
+      { status: 400 },
+    );
+  }
 
   // Find existing user by their external (payer) address
   const [existingUser] = await db
@@ -204,6 +238,26 @@ async function handleDeposit(req: NextRequest): Promise<NextResponse> {
       })
       .where(eq(users.id, user.id));
     user = { ...user, privyWalletId: wallet.id, privyUserId, walletAddress: wallet.address };
+  }
+
+  // Idempotency: reject if there's already a pending deposit for this user
+  const [pendingDeposit] = await db
+    .select()
+    .from(deposits)
+    .where(
+      and(
+        eq(deposits.userId, user.id),
+        eq(deposits.status, "pending"),
+        gt(deposits.createdAt, new Date(Date.now() - 60_000)),
+      ),
+    )
+    .limit(1);
+
+  if (pendingDeposit) {
+    return NextResponse.json(
+      { error: "A deposit is already in progress. Please wait.", deposit_id: pendingDeposit.id },
+      { status: 409 },
+    );
   }
 
   // Insert pending deposit

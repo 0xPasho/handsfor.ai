@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { authenticateUser } from "@/modules/users/auth";
 import { withdrawFromYellow, withdrawFromYellowTestnet } from "@/modules/yellow/server/funds";
+import { getYellowUnifiedBalance } from "@/modules/yellow/server/balance";
 import { serverData } from "@/modules/general/utils/server-constants";
 import { db } from "@/modules/db";
 import { withdrawals } from "@/modules/db/schema";
@@ -50,6 +51,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { error: "Invalid destination address" },
       { status: 400 },
+    );
+  }
+
+  // Check Yellow balance before proceeding
+  try {
+    const available = await getYellowUnifiedBalance(user.id, user.privyWalletId, user.walletAddress);
+    if (parseFloat(available) < parseFloat(amount)) {
+      return NextResponse.json(
+        { error: "Insufficient balance", available, requested: amount },
+        { status: 402 },
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: "Could not verify balance" },
+      { status: 500 },
     );
   }
 

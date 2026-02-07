@@ -1,8 +1,12 @@
 import type { Address } from "viem";
 import { getPublicClient } from "./client";
-import type { SupportedChainId } from "./chains";
+import { getDefaultChainId, type SupportedChainId } from "./chains";
 
-const SIMPLE_ACCOUNT_FACTORY = "0x91E60e0613810449d098b0b5Ec8b51A0FE8c8985" as const;
+// ERC-4337 SimpleAccountFactory — same address on both Base and Sepolia (deterministic CREATE2)
+const SIMPLE_ACCOUNT_FACTORY: Record<SupportedChainId, Address> = {
+  8453: "0x91E60e0613810449d098b0b5Ec8b51A0FE8c8985",
+  11155111: "0x91E60e0613810449d098b0b5Ec8b51A0FE8c8985",
+};
 
 const FACTORY_ABI = [
   {
@@ -21,10 +25,12 @@ export async function getSmartAccountAddressFromEOA(
   eoaAddress: Address,
   chainId?: SupportedChainId,
 ): Promise<Address> {
-  const publicClient = getPublicClient(chainId);
+  const resolvedChainId = chainId ?? getDefaultChainId();
+  const publicClient = getPublicClient(resolvedChainId);
+  const factory = SIMPLE_ACCOUNT_FACTORY[resolvedChainId];
 
   const address = await publicClient.readContract({
-    address: SIMPLE_ACCOUNT_FACTORY,
+    address: factory,
     abi: FACTORY_ABI,
     functionName: "getAddress",
     args: [eoaAddress, 0n],

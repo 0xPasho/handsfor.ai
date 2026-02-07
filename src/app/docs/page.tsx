@@ -127,7 +127,7 @@ export default function DocsPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Two modes: sign with your external wallet address (to recover
                   your API key or access your account), or with your user ID.
-                  Timestamp must be within 5 minutes.
+                  Timestamp must be within 60 seconds.
                 </p>
                 <CodeBlock
                   code={`# Option A: External wallet (recommended for key recovery)
@@ -135,14 +135,14 @@ curl https://handsfor.ai/api/users/me \\
   -H "X-Wallet-Address: 0xYourExternalWallet" \\
   -H "X-Signature: 0x..." \\
   -H "X-Timestamp: 1706150400"
-# Message to sign: "{timestamp}"
+# Message to sign: "handsfor.ai:{timestamp}"
 
 # Option B: User ID + server wallet
 curl https://handsfor.ai/api/tasks \\
   -H "X-User-Id: your-user-uuid" \\
   -H "X-Signature: 0x..." \\
   -H "X-Timestamp: 1706150400"
-# Message to sign: "{timestamp}:{userId}"`}
+# Message to sign: "handsfor.ai:{timestamp}:{userId}"`}
                   title="Wallet Signature Authentication"
                 />
               </div>

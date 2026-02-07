@@ -73,7 +73,7 @@ export async function authenticateUser(req: NextRequest): Promise<AuthResult> {
 
   const ts = parseInt(timestamp, 10);
   const now = Math.floor(Date.now() / 1000);
-  if (isNaN(ts) || Math.abs(now - ts) > 300) {
+  if (isNaN(ts) || Math.abs(now - ts) > 60) {
     return { success: false, error: "Timestamp expired or invalid", status: 401 };
   }
 
@@ -90,7 +90,7 @@ export async function authenticateUser(req: NextRequest): Promise<AuthResult> {
       return { success: false, error: "User not found", status: 401 };
     }
 
-    const message = `${timestamp}:${userId}`;
+    const message = `handsfor.ai:${timestamp}:${userId}`;
     const valid = await verifyMessage({
       address: user.walletAddress as `0x${string}`,
       message,
@@ -117,7 +117,7 @@ export async function authenticateUser(req: NextRequest): Promise<AuthResult> {
       return { success: false, error: "No account found for this wallet", status: 401 };
     }
 
-    const message = `${timestamp}`;
+    const message = `handsfor.ai:${timestamp}`;
     const valid = await verifyMessage({
       address: walletAddress as `0x${string}`,
       message,

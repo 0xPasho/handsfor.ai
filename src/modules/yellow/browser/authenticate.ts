@@ -9,7 +9,7 @@ import {
 } from "@erc7824/nitrolite";
 import { createWalletClient, http, type Hex, type Chain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia } from "viem/chains";
+import { base, sepolia } from "viem/chains";
 import { getYellowCurrency } from "../currency";
 
 const DEFAULT_DURATION_SECONDS = 24 * 60 * 60;
@@ -42,7 +42,7 @@ export async function authenticateYellowSession(
     sessionKeyAddress,
     allowance,
     wsUrl,
-    chain = sepolia,
+    chain = (process.env.NEXT_PUBLIC_NETWORK_MODE || process.env.NETWORK_MODE) === "production" ? base : sepolia,
     durationSeconds,
   } = params;
 
