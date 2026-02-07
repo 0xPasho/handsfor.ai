@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { DotGrid } from "@/components/dot-grid";
-import { Footer } from "@/components/footer";
 import { TaskCard } from "@/components/task-card";
 import { ArrowRight, Bot, Hand, Zap, Copy, Circle, Lock, Users, CheckCircle, Send, DollarSign, Scale, UserCheck, Eye, Plug } from "lucide-react";
 import { db } from "@/modules/db";
@@ -378,7 +377,6 @@ export default async function Home() {
         </div>
       </section>
 
-      <Footer />
     </div>
   );
 }
