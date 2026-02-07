@@ -83,6 +83,25 @@ export async function POST(
     );
   }
 
+  // Prevent duplicate submissions from same worker
+  const [existing] = await db
+    .select()
+    .from(submissions)
+    .where(
+      and(
+        eq(submissions.taskId, task.id),
+        eq(submissions.workerId, user.id),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    return NextResponse.json(
+      { error: "You have already submitted work for this task" },
+      { status: 409 },
+    );
+  }
+
   let evidenceNotes: string | undefined;
   let attachmentUrl: string | undefined;
   try {
@@ -99,6 +118,13 @@ export async function POST(
   if (!evidenceNotes) {
     return NextResponse.json(
       { error: "Evidence notes are required" },
+      { status: 400 },
+    );
+  }
+
+  if (evidenceNotes.length > 5000) {
+    return NextResponse.json(
+      { error: "Evidence notes must be 5000 characters or less" },
       { status: 400 },
     );
   }

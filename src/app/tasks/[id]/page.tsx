@@ -103,7 +103,6 @@ export default function TaskDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [applyMessage, setApplyMessage] = useState("");
   const [applying, setApplying] = useState(false);
-  const [disputeReason, setDisputeReason] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [chatParticipantId, setChatParticipantId] = useState<string | null>(null);
   const [ratingTarget, setRatingTarget] = useState<string | null>(null); // submission ID or "approve"
@@ -216,14 +215,9 @@ export default function TaskDetailPage() {
   const timelineSteps = [
     { label: "Posted", active: true, completed: !!task.createdAt },
     {
-      label: "Active",
-      active: task.status === "open" || task.status === "in_progress",
-      completed: !!task.acceptedAt,
-    },
-    {
-      label: task.status === "submitted" ? "Submitted" : "Review",
-      active: task.status === "submitted" || task.status === "reviewing",
-      completed: task.status === "completed" || task.status === "disputed",
+      label: "Applications",
+      active: task.status === "open",
+      completed: task.status === "completed" || task.status === "cancelled",
     },
     {
       label: task.status === "cancelled" ? "Cancelled" : "Completed",
@@ -575,104 +569,6 @@ export default function TaskDetailPage() {
                     </p>
                   </div>
                 )}
-
-              {/* Submit evidence (in-progress task — legacy) */}
-              {task.status === "in_progress" && isAcceptor && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium">
-                    Submit Evidence
-                  </p>
-                  <MarkdownEditor
-                    value={submitNotes}
-                    onChange={setSubmitNotes}
-                    placeholder="Describe your completed work..."
-                    rows={3}
-                    maxLength={5000}
-                    variant="dark"
-                  />
-                  <Button
-                    size="sm"
-                    className="bg-white text-zinc-900 hover:bg-zinc-100"
-                    onClick={() =>
-                      handleAction("submit", { notes: submitNotes })
-                    }
-                    disabled={
-                      actionLoading === "submit" || !submitNotes.trim()
-                    }
-                  >
-                    {actionLoading === "submit"
-                      ? "Submitting..."
-                      : "Submit Evidence"}
-                  </Button>
-                </div>
-              )}
-
-              {/* Creator actions */}
-              {task.status === "submitted" && isCreator && (
-                <>
-                  {ratingTarget === "approve" ? (
-                    <div className="rounded-md border border-border bg-card p-4">
-                      <RatingPanel
-                        rating={ratingValue}
-                        comment={ratingComment}
-                        onRatingChange={setRatingValue}
-                        onCommentChange={setRatingComment}
-                        loading={actionLoading === "approve"}
-                        confirmLabel="Approve & Pay"
-                        onCancel={() => setRatingTarget(null)}
-                        onConfirm={async () => {
-                          setActionLoading("approve");
-                          try {
-                            await doAction(taskId, "approve", {
-                              rating: ratingValue,
-                              review: ratingComment || undefined,
-                            });
-                            setRatingTarget(null);
-                            await fetchTask();
-                          } finally {
-                            setActionLoading(null);
-                          }
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex gap-3">
-                      <Button
-                        onClick={() => {
-                          setRatingTarget("approve");
-                          setRatingValue(0);
-                          setRatingComment("");
-                        }}
-                      >
-                        Approve & Pay
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          if (disputeReason.trim()) {
-                            handleAction("dispute", { reason: disputeReason });
-                          }
-                        }}
-                        disabled={
-                          actionLoading === "dispute" || !disputeReason.trim()
-                        }
-                      >
-                        {actionLoading === "dispute" ? "..." : "Dispute"}
-                      </Button>
-                    </div>
-                  )}
-
-                  {ratingTarget !== "approve" && (
-                    <textarea
-                      placeholder="Reason for dispute (if needed)..."
-                      value={disputeReason}
-                      onChange={(e) => setDisputeReason(e.target.value)}
-                      rows={2}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-foreground/30"
-                    />
-                  )}
-                </>
-              )}
 
               {task.status === "open" && isCreator && (
                 <Button

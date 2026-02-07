@@ -108,6 +108,34 @@ export const reviews = pgTable("reviews", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const withdrawals = pgTable("withdrawals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  amount: numeric("amount").notNull(),
+  destinationAddress: text("destination_address").notNull(),
+  custodyTxHash: text("custody_tx_hash"),
+  transferTxHash: text("transfer_tx_hash"),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const deposits = pgTable("deposits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  amount: numeric("amount").notNull(),
+  sourceAddress: text("source_address"),
+  transferTxHash: text("transfer_tx_hash"),
+  custodyTxHash: text("custody_tx_hash"),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 export const yellowSessions = pgTable("yellow_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

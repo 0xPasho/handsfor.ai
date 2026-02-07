@@ -5,7 +5,6 @@ import { randomBytes } from "crypto";
 import { db } from "@/modules/db";
 import { users, tasks } from "@/modules/db/schema";
 import { serverData } from "@/modules/general/utils/server-constants";
-import { getUsdcBalance } from "@/modules/evm/balance";
 import { getYellowUnifiedBalance } from "@/modules/yellow/server/balance";
 import { authenticateUser } from "@/modules/users/auth";
 import { resolveAllIdentities } from "@/modules/identity/resolve";
@@ -18,43 +17,40 @@ const privy = new PrivyClient({
 });
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "Missing access token" }, { status: 401 });
-  }
+  // Try standard auth first (Bearer, API key, wallet signature)
+  const authResult = await authenticateUser(req);
 
-  const token = authHeader.slice(7);
-
-  let privyUserId: string;
-  try {
-    const claims = await privy.utils().auth().verifyAccessToken(token);
-    privyUserId = claims.user_id;
-  } catch {
-    return NextResponse.json({ error: "Invalid access token" }, { status: 401 });
-  }
-
-  // Fetch the Privy user to get their external (login) wallet address
-  const privyUser = await privy.users()._get(privyUserId);
-  // Find the external wallet (not embedded) — embedded wallets have connector_type: 'embedded'
-  const externalWallet = privyUser.linked_accounts?.find(
-    (a) =>
-      a.type === "wallet" &&
-      "address" in a &&
-      (!("connector_type" in a) || a.connector_type !== "embedded"),
-  ) as { address: string } | undefined;
-  const externalAddress = externalWallet?.address?.toLowerCase() || null;
-
-  // Check if user already exists by privyUserId
-  const [existingUser] = await db
-    .select()
-    .from(users)
-    .where(eq(users.privyUserId, privyUserId))
-    .limit(1);
-
-  let user = existingUser;
+  let user: typeof users.$inferSelect;
   let isNewUser = false;
 
-  if (!user) {
+  if (authResult.success) {
+    user = authResult.user;
+  } else {
+    // Auto-create only for Bearer token users (new Privy signups)
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+    }
+
+    const token = authHeader.slice(7);
+    let privyUserId: string;
+    try {
+      const claims = await privy.utils().auth().verifyAccessToken(token);
+      privyUserId = claims.user_id;
+    } catch {
+      return NextResponse.json({ error: "Invalid access token" }, { status: 401 });
+    }
+
+    // Fetch the Privy user to get their external (login) wallet address
+    const privyUser = await privy.users()._get(privyUserId);
+    const externalWallet = privyUser.linked_accounts?.find(
+      (a) =>
+        a.type === "wallet" &&
+        "address" in a &&
+        (!("connector_type" in a) || a.connector_type !== "embedded"),
+    ) as { address: string } | undefined;
+    const externalAddress = externalWallet?.address?.toLowerCase() || null;
+
     // Create an app-owned server wallet (owned by our signing key)
     const authPublicKey = serverData.environment.PRIVY_AUTHORIZATION_PUBLIC_KEY;
     const wallet = await privy.wallets().create({
@@ -80,10 +76,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     isNewUser = true;
   }
 
-  // Backfill external wallet address if not set
-  if (!user.externalWalletAddress && externalAddress) {
-    await db.update(users).set({ externalWalletAddress: externalAddress }).where(eq(users.id, user.id));
-    user = { ...user, externalWalletAddress: externalAddress };
+  // Backfill external wallet address for Bearer users
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ") && !user.externalWalletAddress) {
+    try {
+      const token = authHeader.slice(7);
+      const claims = await privy.utils().auth().verifyAccessToken(token);
+      const privyUser = await privy.users()._get(claims.user_id);
+      const externalWallet = privyUser.linked_accounts?.find(
+        (a) =>
+          a.type === "wallet" &&
+          "address" in a &&
+          (!("connector_type" in a) || a.connector_type !== "embedded"),
+      ) as { address: string } | undefined;
+      const externalAddress = externalWallet?.address?.toLowerCase() || null;
+      if (externalAddress) {
+        await db.update(users).set({ externalWalletAddress: externalAddress }).where(eq(users.id, user.id));
+        user = { ...user, externalWalletAddress: externalAddress };
+      }
+    } catch {
+      // backfill failed, continue
+    }
   }
 
   // Backfill username for existing users without one
@@ -185,20 +198,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     } : null,
   }));
 
-  // Fetch on-chain USDC balance and Yellow balance in parallel
-  const [onChainBalance, yellowBalance] = await Promise.all([
-    getUsdcBalance(user.walletAddress),
-    user.privyWalletId
-      ? getYellowUnifiedBalance(user.id, user.privyWalletId, user.walletAddress)
-      : Promise.resolve("0"),
-  ]);
+  // Fetch Yellow Network balance (the only balance that matters)
+  let yellowBalance = "0";
+  if (user.privyWalletId) {
+    try {
+      yellowBalance = await getYellowUnifiedBalance(user.id, user.privyWalletId, user.walletAddress);
+    } catch {
+      // balance query may fail, default to 0
+    }
+  }
 
   return NextResponse.json({
     user_id: user.id,
     wallet_address: user.walletAddress,
     privy_wallet_id: user.privyWalletId,
-    balance: onChainBalance,
-    yellow_balance: yellowBalance,
+    balance: yellowBalance,
     api_key: user.apiKey,
     is_new: isNewUser,
     tasks: enrichedTasks,

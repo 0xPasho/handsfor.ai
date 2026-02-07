@@ -4,6 +4,7 @@ import { type Address } from "viem";
 import { db } from "@/modules/db";
 import { tasks, submissions, users, reviews } from "@/modules/db/schema";
 import { getAuthedTask } from "../helpers";
+import { transitionToWorkerSession } from "@/modules/yellow/server/platform";
 import { closeTaskAppSession } from "@/modules/yellow/server/platform";
 
 export async function POST(
@@ -23,7 +24,7 @@ export async function POST(
     );
   }
 
-  if (task.status !== "open" && task.status !== "reviewing") {
+  if (task.status !== "open") {
     return NextResponse.json(
       { error: `Task is ${task.status}, cannot pick winner` },
       { status: 400 },
@@ -73,26 +74,51 @@ export async function POST(
     );
   }
 
-  // Load creator for Yellow session closing
+  // Load creator for Yellow session
   const [creator] = await db
     .select()
     .from(users)
     .where(eq(users.id, task.creatorId))
     .limit(1);
 
-  if (!creator) {
+  if (!creator?.privyWalletId) {
     return NextResponse.json(
-      { error: "Creator not found" },
+      { error: "Creator has no server wallet" },
       { status: 500 },
     );
   }
 
-  // Close Yellow session — funds to winner's wallet
+  // Load winner for Yellow session
+  const [winner] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, submission.workerId))
+    .limit(1);
+
+  if (!winner?.privyWalletId) {
+    return NextResponse.json(
+      { error: "Winner has no server wallet" },
+      { status: 400 },
+    );
+  }
+
+  // Yellow session: transition 2-party → 3-party with winner, then close with funds to winner
   if (task.appSessionId) {
-    await closeTaskAppSession({
-      appSessionId: task.appSessionId,
+    const { appSessionId } = await transitionToWorkerSession({
+      existingAppSessionId: task.appSessionId,
       creatorAddress: creator.walletAddress as Address,
-      acceptorAddress: submission.workerWallet as Address,
+      creatorUserId: creator.id,
+      creatorPrivyWalletId: creator.privyWalletId,
+      acceptorAddress: winner.walletAddress as Address,
+      acceptorUserId: winner.id,
+      acceptorPrivyWalletId: winner.privyWalletId,
+      amount: task.amount,
+    });
+
+    await closeTaskAppSession({
+      appSessionId,
+      creatorAddress: creator.walletAddress as Address,
+      acceptorAddress: winner.walletAddress as Address,
       amount: task.amount,
       winner: "acceptor",
     });
@@ -110,6 +136,7 @@ export async function POST(
     .set({
       status: "completed",
       resolution: "acceptor_wins",
+      acceptorId: winner.id,
       winnerSubmissionId: submissionId,
       completedAt: new Date(),
     })

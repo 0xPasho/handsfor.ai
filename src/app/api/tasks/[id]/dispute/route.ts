@@ -2,35 +2,45 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { type Address } from "viem";
 import { db } from "@/modules/db";
-import { tasks, users } from "@/modules/db/schema";
+import { tasks, submissions, users } from "@/modules/db/schema";
 import { getAuthedTask } from "../helpers";
-import { closeTaskAppSession } from "@/modules/yellow/server/platform";
+import { transitionToWorkerSession, closeTaskAppSession } from "@/modules/yellow/server/platform";
 
 /**
- * Simple AI dispute resolution.
- * Calls an LLM to decide based on task description, evidence, and dispute reason.
+ * AI dispute resolution via OpenRouter.
+ * Evaluates task description, all submissions, and the dispute reason
+ * to decide whether a submission is adequate or the creator is right.
  */
 async function resolveDispute(params: {
   taskDescription: string | null;
-  evidenceNotes: string | null;
+  submissions: { id: string; evidenceNotes: string | null; workerWallet: string }[];
   disputeReason: string;
-}): Promise<"creator_wins" | "acceptor_wins"> {
+}): Promise<{ resolution: "creator_wins" | "acceptor_wins"; winnerSubmissionId?: string }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    // No AI key configured — default to creator wins
     console.warn("OPENROUTER_API_KEY not set, defaulting dispute to creator_wins");
-    return "creator_wins";
+    return { resolution: "creator_wins" };
   }
 
+  const submissionsList = params.submissions
+    .map((s, i) => `Submission ${i + 1} (ID: ${s.id}):\n${s.evidenceNotes || "(no evidence)"}`)
+    .join("\n\n");
+
   try {
-    const prompt = `You are a dispute resolver for a task marketplace. A task creator disputes the submitted work.
+    const prompt = `You are a dispute resolver for a task marketplace. A task creator is disputing the submitted work.
 
 Task description: ${params.taskDescription || "(no description)"}
-Evidence/work submitted: ${params.evidenceNotes || "(no evidence notes)"}
-Dispute reason: ${params.disputeReason}
+
+Submissions:
+${submissionsList}
+
+Creator's dispute reason: ${params.disputeReason}
 
 Based on this information, decide who wins the dispute.
-Respond with ONLY one of: "creator_wins" or "acceptor_wins"`;
+- If ANY submission adequately fulfills the task, respond with: acceptor_wins:SUBMISSION_ID (using the actual submission ID)
+- If NO submission adequately fulfills the task, respond with: creator_wins
+
+Respond with ONLY one line in the format above.`;
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -41,25 +51,35 @@ Respond with ONLY one of: "creator_wins" or "acceptor_wins"`;
       body: JSON.stringify({
         model: "anthropic/claude-sonnet-4",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 20,
+        max_tokens: 50,
       }),
     });
 
     if (!response.ok) {
       console.error("AI dispute resolution failed:", await response.text());
-      return "creator_wins";
+      return { resolution: "creator_wins" };
     }
 
     const data = await response.json();
-    const answer = data.choices?.[0]?.message?.content?.trim().toLowerCase();
+    const answer = data.choices?.[0]?.message?.content?.trim() || "";
 
-    if (answer?.includes("acceptor_wins")) {
-      return "acceptor_wins";
+    if (answer.toLowerCase().startsWith("acceptor_wins")) {
+      // Extract submission ID from response
+      const parts = answer.split(":");
+      const submissionId = parts.slice(1).join(":").trim();
+      // Verify it's a valid submission
+      const validSubmission = params.submissions.find((s) => s.id === submissionId);
+      if (validSubmission) {
+        return { resolution: "acceptor_wins", winnerSubmissionId: validSubmission.id };
+      }
+      // AI said acceptor wins but gave invalid ID — pick first submission
+      return { resolution: "acceptor_wins", winnerSubmissionId: params.submissions[0].id };
     }
-    return "creator_wins";
+
+    return { resolution: "creator_wins" };
   } catch (err) {
     console.error("AI dispute resolution error:", err);
-    return "creator_wins";
+    return { resolution: "creator_wins" };
   }
 }
 
@@ -73,9 +93,9 @@ export async function POST(
 
   const { user, task } = result;
 
-  if (task.status !== "submitted") {
+  if (task.status !== "open") {
     return NextResponse.json(
-      { error: `Task is ${task.status}, can only dispute when submitted` },
+      { error: `Task is ${task.status}, can only dispute when open` },
       { status: 400 },
     );
   }
@@ -102,9 +122,22 @@ export async function POST(
     );
   }
 
-  if (!task.appSessionId || !task.acceptorId) {
+  // Load submissions
+  const taskSubmissions = await db
+    .select()
+    .from(submissions)
+    .where(eq(submissions.taskId, task.id));
+
+  if (taskSubmissions.length === 0) {
     return NextResponse.json(
-      { error: "Task missing app session or acceptor" },
+      { error: "No submissions to dispute — cancel the task instead" },
+      { status: 400 },
+    );
+  }
+
+  if (!task.appSessionId) {
+    return NextResponse.json(
+      { error: "Task missing escrow session" },
       { status: 500 },
     );
   }
@@ -119,53 +152,106 @@ export async function POST(
     .where(eq(tasks.id, task.id));
 
   // AI resolution
-  const resolution = await resolveDispute({
+  const { resolution, winnerSubmissionId } = await resolveDispute({
     taskDescription: task.description,
-    evidenceNotes: task.evidenceNotes,
+    submissions: taskSubmissions.map((s) => ({
+      id: s.id,
+      evidenceNotes: s.evidenceNotes,
+      workerWallet: s.workerWallet,
+    })),
     disputeReason: reason,
   });
 
-  // Load participants
+  // Load creator
   const [creator] = await db
     .select()
     .from(users)
     .where(eq(users.id, task.creatorId))
     .limit(1);
 
-  const [acceptor] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, task.acceptorId))
-    .limit(1);
-
-  if (!creator || !acceptor) {
+  if (!creator?.privyWalletId) {
     return NextResponse.json(
-      { error: "Creator or acceptor not found" },
+      { error: "Creator has no server wallet" },
       { status: 500 },
     );
   }
 
-  // Close Yellow session based on resolution
-  await closeTaskAppSession({
-    appSessionId: task.appSessionId,
-    creatorAddress: creator.walletAddress as Address,
-    acceptorAddress: acceptor.walletAddress as Address,
-    amount: task.amount,
-    winner: resolution === "acceptor_wins" ? "acceptor" : "creator",
-  });
+  if (resolution === "acceptor_wins" && winnerSubmissionId) {
+    // AI picked a winner — transition session and pay the worker
+    const winningSubmission = taskSubmissions.find((s) => s.id === winnerSubmissionId)!;
 
-  await db
-    .update(tasks)
-    .set({
-      status: "completed",
-      resolution,
-      completedAt: new Date(),
-    })
-    .where(eq(tasks.id, task.id));
+    const [winner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, winningSubmission.workerId))
+      .limit(1);
+
+    if (!winner?.privyWalletId) {
+      return NextResponse.json(
+        { error: "Winner has no server wallet" },
+        { status: 500 },
+      );
+    }
+
+    const { appSessionId } = await transitionToWorkerSession({
+      existingAppSessionId: task.appSessionId,
+      creatorAddress: creator.walletAddress as Address,
+      creatorUserId: creator.id,
+      creatorPrivyWalletId: creator.privyWalletId,
+      acceptorAddress: winner.walletAddress as Address,
+      acceptorUserId: winner.id,
+      acceptorPrivyWalletId: winner.privyWalletId,
+      amount: task.amount,
+    });
+
+    await closeTaskAppSession({
+      appSessionId,
+      creatorAddress: creator.walletAddress as Address,
+      acceptorAddress: winner.walletAddress as Address,
+      amount: task.amount,
+      winner: "acceptor",
+    });
+
+    // Mark winner
+    await db
+      .update(submissions)
+      .set({ isWinner: true })
+      .where(eq(submissions.id, winnerSubmissionId));
+
+    await db
+      .update(tasks)
+      .set({
+        status: "completed",
+        resolution: "acceptor_wins",
+        acceptorId: winner.id,
+        winnerSubmissionId,
+        completedAt: new Date(),
+      })
+      .where(eq(tasks.id, task.id));
+  } else {
+    // Creator wins — close session returning funds to creator
+    await closeTaskAppSession({
+      appSessionId: task.appSessionId,
+      creatorAddress: creator.walletAddress as Address,
+      acceptorAddress: creator.walletAddress as Address,
+      amount: task.amount,
+      winner: "creator",
+    });
+
+    await db
+      .update(tasks)
+      .set({
+        status: "completed",
+        resolution: "creator_wins",
+        completedAt: new Date(),
+      })
+      .where(eq(tasks.id, task.id));
+  }
 
   return NextResponse.json({
     task_id: task.id,
     status: "completed",
     resolution,
+    winner_submission_id: winnerSubmissionId || null,
   });
 }

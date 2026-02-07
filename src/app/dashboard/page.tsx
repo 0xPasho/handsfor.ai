@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useUser } from "@/hooks/use-user";
 import { UsdcAmount } from "@/components/usdc-amount";
@@ -19,7 +20,7 @@ import {
   DialogDescription,
 } from "@/modules/shared/components/ui/dialog";
 import { truncAddr } from "@/lib/format";
-import { Wallet, ArrowUpRight, Key } from "lucide-react";
+import { Wallet, ArrowUpRight, ArrowDownLeft, Key, ArrowLeft } from "lucide-react";
 import type { Task } from "@/hooks/use-user";
 
 type TabKey = "created" | "working" | "completed";
@@ -36,6 +37,10 @@ export default function DashboardPage() {
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositing, setDepositing] = useState(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositOpen, setDepositOpen] = useState(false);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -76,6 +81,35 @@ export default function DashboardPage() {
       setWithdrawing(false);
     }
   }, [withdrawAmount, withdrawAddr, getToken, refetch]);
+
+  const handleDeposit = useCallback(async () => {
+    if (!depositAmount) return;
+    setDepositing(true);
+    setDepositError(null);
+    try {
+      const token = await getToken();
+      const res = await fetch(
+        `/api/users/deposit?amount=${encodeURIComponent(depositAmount)}`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Deposit failed");
+      }
+      setDepositAmount("");
+      setDepositOpen(false);
+      await refetch();
+    } catch (err) {
+      setDepositError(
+        err instanceof Error ? err.message : "Deposit failed",
+      );
+    } finally {
+      setDepositing(false);
+    }
+  }, [depositAmount, getToken, refetch]);
 
   if (!ready || !authenticated) {
     return null;
@@ -130,6 +164,14 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
+      <Link
+        href={`/humans/${user.username || user.user_id}`}
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-3.5" />
+        My Profile
+      </Link>
+
       <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
 
       {/* Balance card */}
@@ -137,34 +179,11 @@ export default function DashboardPage() {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
-              Total Balance
+              Balance
             </p>
-            <UsdcAmount
-              amount={(
-                parseFloat(user.balance) + parseFloat(user.yellow_balance)
-              ).toString()}
-              size="lg"
-            />
+            <UsdcAmount amount={user.balance} size="lg" />
           </div>
           <Wallet className="size-5 text-muted-foreground" />
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              Wallet
-            </p>
-            <p className="text-sm font-semibold tabular-nums">
-              ${parseFloat(user.balance).toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              Yellow Balance
-            </p>
-            <p className="text-sm font-semibold tabular-nums">
-              ${parseFloat(user.yellow_balance).toFixed(2)}
-            </p>
-          </div>
         </div>
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -173,14 +192,24 @@ export default function DashboardPage() {
             </span>
             <CopyButton text={user.wallet_address} />
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setWithdrawOpen(true)}
-          >
-            <ArrowUpRight className="size-3.5" />
-            Withdraw
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDepositOpen(true)}
+            >
+              <ArrowDownLeft className="size-3.5" />
+              Deposit
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setWithdrawOpen(true)}
+            >
+              <ArrowUpRight className="size-3.5" />
+              Withdraw
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -248,6 +277,55 @@ export default function DashboardPage() {
               disabled={withdrawing || !withdrawAmount || !withdrawAddr}
             >
               {withdrawing ? "Withdrawing..." : "Withdraw"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deposit modal */}
+      <Dialog open={depositOpen} onOpenChange={setDepositOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deposit USDC</DialogTitle>
+            <DialogDescription>
+              Add USDC to your balance for creating tasks.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">
+                Amount
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00 USDC"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Current balance: ${parseFloat(user.balance).toFixed(2)} USDC
+              </p>
+            </div>
+            {depositError && (
+              <p className="text-xs text-destructive">{depositError}</p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDepositOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleDeposit}
+              disabled={depositing || !depositAmount}
+            >
+              {depositing ? "Depositing..." : "Deposit"}
             </Button>
           </div>
         </DialogContent>

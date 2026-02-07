@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useUser } from "@/hooks/use-user";
 import {
   Avatar,
   AvatarImage,
@@ -23,6 +24,8 @@ import {
   FileText,
   Users,
   Star,
+  Pencil,
+  LayoutDashboard,
 } from "lucide-react";
 
 type UserReview = {
@@ -65,6 +68,7 @@ type UserProfile = {
 export default function HumanProfilePage() {
   const params = useParams();
   const userId = params.id as string;
+  const { user: me } = useUser();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -149,10 +153,30 @@ export default function HumanProfilePage() {
               ) : null}
               <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
             </Avatar>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {getDisplayName(user)}
-              </h1>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  {getDisplayName(user)}
+                </h1>
+                {me && (me.user_id === user.id || me.username === userId || me.wallet_address === user.wallet_address) && (
+                  <>
+                    <Link
+                      href="/dashboard"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-zinc-50 hover:text-foreground"
+                    >
+                      <LayoutDashboard className="size-3" />
+                      Dashboard
+                    </Link>
+                    <Link
+                      href="/settings"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-zinc-50 hover:text-foreground"
+                    >
+                      <Pencil className="size-3" />
+                      Edit Profile
+                    </Link>
+                  </>
+                )}
+              </div>
               <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="font-mono">
                   {truncAddr(user.wallet_address)}

@@ -247,7 +247,7 @@ async function depositToCustody(
  * Send a small amount of ETH from the platform wallet to a user's server wallet
  * so it can pay gas for custody contract interactions (deposit/withdraw).
  */
-async function sponsorGas(userAddress: string): Promise<void> {
+export async function sponsorGas(userAddress: string): Promise<void> {
   const chain = getChain();
   const platformKey = serverData.environment.PLATFORM_WALLET_PRIVATE_KEY as Hex;
   const platformAccount = privateKeyToAccount(platformKey);
@@ -381,7 +381,7 @@ export async function withdrawFromYellowTestnet(params: {
   walletAddress: string;
   amount: string;
   destinationAddress: string;
-}): Promise<{ txHash: string }> {
+}): Promise<{ txHash: string; custodyTxHash: string }> {
   // Sponsor gas so user's server wallet can call custody withdrawal
   await sponsorGas(params.walletAddress);
 
@@ -418,6 +418,32 @@ export async function depositAndAllocateForUser(params: {
   await createChannelAndAllocate(params, yellowToken);
 }
 
+/**
+ * Deposit from user's server wallet to Yellow custody and unified balance.
+ * Skips step 1 of depositAndAllocateForUser (platform→user transfer) — use
+ * this when the user's server wallet already has USDC (e.g. sent directly).
+ */
+export async function depositFromServerWallet(params: {
+  userId: string;
+  privyWalletId: string;
+  walletAddress: string;
+  amount: string;
+}): Promise<void> {
+  const yellowToken = await getYellowUsdToken();
+
+  // Deposit from user's server wallet to Yellow custody
+  await depositToCustody(
+    params.privyWalletId,
+    params.walletAddress,
+    params.amount,
+    yellowToken.address as Address,
+    yellowToken.decimals,
+  );
+
+  // Create channel and allocate deposited funds via Yellow
+  await createChannelAndAllocate(params, yellowToken);
+}
+
 
 /**
  * Withdraw USDC from Yellow to an external address.
@@ -428,7 +454,7 @@ export async function withdrawFromYellow(params: {
   walletAddress: string;
   amount: string;
   destinationAddress: string;
-}): Promise<{ txHash: string }> {
+}): Promise<{ txHash: string; custodyTxHash: string }> {
   const chainId = getDefaultChainId();
   const chain = getChain();
   const contracts = await getYellowContractAddresses(chainId);
@@ -484,5 +510,5 @@ export async function withdrawFromYellow(params: {
     args: [params.destinationAddress as `0x${string}`, amountInUnits],
   });
 
-  return { txHash };
+  return { txHash, custodyTxHash: withdrawHash };
 }

@@ -3,13 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useUser } from "@/hooks/use-user";
 import { UsdcAmount } from "@/components/usdc-amount";
 import { TagPill } from "@/components/tag-pill";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { Button } from "@/modules/shared/components/ui/button";
 import { Separator } from "@/modules/shared/components/ui/separator";
-import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
-import { ExactEvmScheme } from "@x402/evm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
@@ -22,14 +21,10 @@ const DEADLINE_OPTIONS = [
   { label: "24h", hours: 24 },
 ];
 
-const NETWORK_MODE = process.env.NEXT_PUBLIC_NETWORK_MODE || "testnet";
-const x402Network =
-  NETWORK_MODE === "production" ? "eip155:8453" : "eip155:11155111";
-
 export default function CreateTaskPage() {
   const router = useRouter();
-  const { authenticated, login, getToken, getWalletClient, wallets } =
-    useAuth();
+  const { authenticated, login, getToken } = useAuth();
+  const { user } = useUser();
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -42,6 +37,8 @@ export default function CreateTaskPage() {
   const [error, setError] = useState<string | null>(null);
 
   const amountNum = parseFloat(amount) || 0;
+  const balanceNum = parseFloat(user?.balance || "0");
+  const insufficientBalance = amountNum > 0 && amountNum > balanceNum;
 
   const handleCreate = async () => {
     if (!amount || amountNum <= 0 || !description.trim()) return;
@@ -49,67 +46,28 @@ export default function CreateTaskPage() {
     setError(null);
 
     try {
-      const body = JSON.stringify({
-        description: description.trim(),
-        tags: tags.length > 0 ? tags : undefined,
-        deadline_hours: hasDeadline && deadlineHours ? deadlineHours : undefined,
-        competition_mode: multiWorker,
-      });
-
-      if (NETWORK_MODE === "testnet") {
-        const token = await getToken();
-        const res = await fetch(
-          `/api/tasks?amount=${encodeURIComponent(amount)}`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body,
+      const token = await getToken();
+      const res = await fetch(
+        `/api/tasks?amount=${encodeURIComponent(amount)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        );
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || "Failed to create task");
-        }
+          body: JSON.stringify({
+            description: description.trim(),
+            tags: tags.length > 0 ? tags : undefined,
+            deadline_hours: hasDeadline && deadlineHours ? deadlineHours : undefined,
+          }),
+        },
+      );
+      if (!res.ok) {
         const data = await res.json();
-        router.push(`/tasks/${data.task_id}`);
-      } else {
-        const wallet = wallets[0];
-        if (!wallet) throw new Error("No wallet connected");
-        const walletClient = await getWalletClient();
-        const signer = {
-          address: wallet.address as `0x${string}`,
-          signTypedData: (message: {
-            domain: Record<string, unknown>;
-            types: Record<string, unknown>;
-            primaryType: string;
-            message: Record<string, unknown>;
-          }) =>
-            walletClient.signTypedData({
-              account: wallet.address as `0x${string}`,
-              ...message,
-            } as never),
-        };
-        const client = new x402Client();
-        client.register(x402Network, new ExactEvmScheme(signer));
-        const fetchWithPay = wrapFetchWithPayment(fetch, client);
-        const res = await fetchWithPay(
-          `/api/tasks?amount=${encodeURIComponent(amount)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body,
-          },
-        );
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || "Failed to create task");
-        }
-        const data = await res.json();
-        router.push(`/tasks/${data.task_id}`);
+        throw new Error(data.error || "Failed to create task");
       }
+      const data = await res.json();
+      router.push(`/tasks/${data.task_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");
     } finally {
@@ -239,6 +197,17 @@ export default function CreateTaskPage() {
         <p className="mt-3 text-center text-xs text-muted-foreground">
           This amount will be held in escrow until the task is complete.
         </p>
+        {user && (
+          <p className={`mt-1 text-center text-xs ${insufficientBalance ? "text-destructive" : "text-muted-foreground"}`}>
+            Your balance: ${balanceNum.toFixed(2)} USDC
+            {insufficientBalance && (
+              <span className="block mt-0.5">
+                Insufficient balance.{" "}
+                <Link href="/dashboard" className="underline">Deposit first</Link>
+              </span>
+            )}
+          </p>
+        )}
       </div>
 
       <Separator className="my-8" />
@@ -334,15 +303,14 @@ export default function CreateTaskPage() {
         className="w-full"
         size="lg"
         onClick={handleCreate}
-        disabled={creating || amountNum <= 0 || !description.trim()}
+        disabled={creating || amountNum <= 0 || !description.trim() || insufficientBalance}
       >
         {creating
           ? "Creating..."
           : `Post Task — $${amountNum.toFixed(2)} USDC`}
       </Button>
       <p className="mt-2 text-center text-xs text-muted-foreground">
-        You&rsquo;ll be charged ${amountNum.toFixed(2)} USDC from your Yellow
-        balance.
+        You&rsquo;ll be charged ${amountNum.toFixed(2)} USDC from your balance.
       </p>
 
       {error && (

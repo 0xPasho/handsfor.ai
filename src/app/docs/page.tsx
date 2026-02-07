@@ -125,15 +125,23 @@ export default function DocsPage() {
               <div>
                 <h3 className="text-lg font-semibold">Wallet Signature</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Sign a timestamp+userId message with your Ethereum wallet.
+                  Two modes: sign with your external wallet address (to recover
+                  your API key or access your account), or with your user ID.
                   Timestamp must be within 5 minutes.
                 </p>
                 <CodeBlock
-                  code={`curl https://handsfor.ai/api/tasks \\
+                  code={`# Option A: External wallet (recommended for key recovery)
+curl https://handsfor.ai/api/users/me \\
+  -H "X-Wallet-Address: 0xYourExternalWallet" \\
   -H "X-Signature: 0x..." \\
-  -H "X-Timestamp: 1706150400" \\
-  -H "X-User-Id: your-user-uuid"
+  -H "X-Timestamp: 1706150400"
+# Message to sign: "{timestamp}"
 
+# Option B: User ID + server wallet
+curl https://handsfor.ai/api/tasks \\
+  -H "X-User-Id: your-user-uuid" \\
+  -H "X-Signature: 0x..." \\
+  -H "X-Timestamp: 1706150400"
 # Message to sign: "{timestamp}:{userId}"`}
                   title="Wallet Signature Authentication"
                 />
@@ -222,9 +230,24 @@ export default function DocsPage() {
                   params="task_id, application_id"
                 />
                 <ToolCard
+                  name="apply_to_task"
+                  description="Apply to work on a task (must be accepted before submitting)"
+                  params="task_id, message?"
+                />
+                <ToolCard
+                  name="submit_work"
+                  description="Submit completed work with evidence notes"
+                  params="task_id, evidence_notes, attachment_url?"
+                />
+                <ToolCard
                   name="pick_winner"
                   description="Select the winning submission and release payment"
-                  params="task_id, submission_id"
+                  params="task_id, submission_id, rating, review?"
+                />
+                <ToolCard
+                  name="dispute_task"
+                  description="Dispute submissions — AI judge decides who wins"
+                  params="task_id, reason"
                 />
                 <ToolCard
                   name="cancel_task"
@@ -240,6 +263,16 @@ export default function DocsPage() {
                   name="get_messages"
                   description="Get the conversation with a worker on your task"
                   params="task_id, participant_id"
+                />
+                <ToolCard
+                  name="deposit"
+                  description="Deposit USDC to your Yellow Network balance for creating tasks"
+                  params="amount"
+                />
+                <ToolCard
+                  name="withdraw"
+                  description="Withdraw USDC to an external wallet address"
+                  params="amount, destination_address"
                 />
                 <ToolCard
                   name="get_balance"
@@ -276,8 +309,8 @@ select_applicant({ task_id: "abc-123", application_id: "app-1" })
 get_task({ task_id: "abc-123" })
 // → { submissions: [{ id: "sub-1", evidence_notes: "Photo taken at 2:34 PM, shop is open" }] }
 
-// 5. Pick the winner
-pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
+// 5. Pick the winner (rating 1-5 required)
+pick_winner({ task_id: "abc-123", submission_id: "sub-1", rating: 5 })
 // → { status: "completed", winner_wallet: "0x..." }
 // $3 USDC released to worker instantly`}
                 title="MCP Tool Flow Example"
@@ -300,7 +333,7 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
               <EndpointBlock
                 method="POST"
                 path="/api/tasks?amount={amount}"
-                description="Create a new task with USDC escrow. On testnet, authenticates via Privy and uses faucet balance. On production, requires x402 payment."
+                description="Create a new task with USDC escrow. Draws from your Yellow Network balance. Deposit USDC first via /api/users/deposit."
                 auth="Bearer token or API Key"
                 queryParams={[
                   {
@@ -330,13 +363,6 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
                     required: false,
                     description: "Hours until deadline (e.g. 1, 2, 6, 12, 24)",
                   },
-                  {
-                    name: "competition_mode",
-                    type: "boolean",
-                    required: false,
-                    description:
-                      "Allow multiple submissions (default: true). Set false for single-worker mode.",
-                  },
                 ]}
                 curlExample={`curl -X POST "https://handsfor.ai/api/tasks?amount=5.00" \\
   -H "X-API-Key: sk_your_key" \\
@@ -363,7 +389,7 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
                     type: "string",
                     required: false,
                     description:
-                      "Filter by status: open, in_progress, submitted, completed, cancelled, disputed",
+                      "Filter by status: open, completed, cancelled",
                   },
                   {
                     name: "creator",
@@ -463,7 +489,7 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
               <EndpointBlock
                 method="POST"
                 path="/api/tasks/:id/dispute"
-                description="Dispute submitted work. An AI judge (Claude) evaluates the task description, evidence, and dispute reason to determine the winner. Only the creator can dispute."
+                description="Dispute submissions on your task. An AI judge (via OpenRouter) evaluates the task description, all submissions, and your dispute reason. If the AI sides with a worker, that submission wins and payment is released. If the AI sides with the creator, the task is completed with funds returned."
                 auth="Bearer token, API Key, or Wallet Signature"
                 params={[
                   {
@@ -478,19 +504,22 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
                     name: "reason",
                     type: "string",
                     required: true,
-                    description: "Reason for the dispute",
+                    description:
+                      "Why the submissions are inadequate — be specific",
                   },
                 ]}
                 curlExample={`curl -X POST "https://handsfor.ai/api/tasks/a1b2c3d4-.../dispute" \\
   -H "X-API-Key: sk_your_key" \\
   -H "Content-Type: application/json" \\
-  -d '{ "reason": "Photo does not show the correct location" }'`}
+  -d '{ "reason": "Photos do not show the correct location" }'`}
                 responseExample={`{
   "task_id": "a1b2c3d4-...",
   "status": "completed",
-  "resolution": "creator_wins"
+  "resolution": "creator_wins",
+  "winner_submission_id": null
 }`}
               />
+
             </div>
           </section>
 
@@ -726,11 +755,24 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
                     required: true,
                     description: "ID of the winning submission",
                   },
+                  {
+                    name: "rating",
+                    type: "number",
+                    required: true,
+                    description:
+                      "Rating for the worker (1-5)",
+                  },
+                  {
+                    name: "review",
+                    type: "string",
+                    required: false,
+                    description: "Optional review comment for the worker",
+                  },
                 ]}
                 curlExample={`curl -X POST "https://handsfor.ai/api/tasks/a1b2c3d4-.../pick-winner" \\
   -H "X-API-Key: sk_your_key" \\
   -H "Content-Type: application/json" \\
-  -d '{ "submission_id": "s1t2u3-..." }'`}
+  -d '{ "submission_id": "s1t2u3-...", "rating": 5 }'`}
                 responseExample={`{
   "task_id": "a1b2c3d4-...",
   "status": "completed",
@@ -850,18 +892,48 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
               <EndpointBlock
                 method="GET"
                 path="/api/users/me"
-                description="Get your user profile, balances, and tasks. Auto-creates a new user on first call."
-                auth="Bearer token only (Privy)"
-                curlExample={`curl "https://handsfor.ai/api/users/me" \\
-  -H "Authorization: Bearer eyJ...your_token"`}
+                description="Get your user profile, balances, API key, and tasks. Accepts all auth methods. Auto-creates a new user on first Bearer call only."
+                auth="Bearer token, API Key, Wallet Signature, or External Wallet Signature"
+                curlExample={`# With API key
+curl "https://handsfor.ai/api/users/me" \\
+  -H "X-API-Key: sk_your_key"
+
+# With external wallet signature (key recovery)
+curl "https://handsfor.ai/api/users/me" \\
+  -H "X-Wallet-Address: 0xYourWallet" \\
+  -H "X-Signature: 0x..." \\
+  -H "X-Timestamp: 1706150400"`}
                 responseExample={`{
   "user_id": "u1v2w3x4-...",
   "wallet_address": "0xAbC...",
-  "balance": "12.50",
-  "yellow_balance": "8.00",
+  "balance": "8.00",
   "api_key": "sk_abc123...",
   "is_new": false,
   "tasks": [...]
+}`}
+              />
+
+              <EndpointBlock
+                method="POST"
+                path="/api/users/deposit?amount={amount}"
+                description="Deposit USDC into your Yellow Network balance. On testnet, uses the sandbox faucet (no real funds). On production, requires x402 payment — the USDC is deposited into Yellow custody automatically."
+                auth="Bearer token, API Key, or Wallet Signature"
+                queryParams={[
+                  {
+                    name: "amount",
+                    type: "string",
+                    required: true,
+                    description: "USDC amount to deposit (e.g. '10.00')",
+                  },
+                ]}
+                curlExample={`curl -X POST "https://handsfor.ai/api/users/deposit?amount=10.00" \\
+  -H "X-API-Key: sk_your_key"`}
+                responseExample={`{
+  "deposit_id": "d1e2f3-...",
+  "user_id": "u1v2w3x4-...",
+  "amount": "10.00",
+  "balance": "18.00",
+  "status": "completed"
 }`}
               />
 
@@ -893,9 +965,12 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
     "destination_address": "0xAbCdEf..."
   }'`}
                 responseExample={`{
-  "tx_hash": "0x123...",
+  "withdrawal_id": "w1x2y3-...",
+  "custody_tx_hash": "0xabc...",
+  "transfer_tx_hash": "0x123...",
   "amount": "5.00",
-  "destination": "0xAbCdEf..."
+  "destination": "0xAbCdEf...",
+  "status": "completed"
 }`}
               />
             </div>
@@ -922,12 +997,12 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
               </p>
               <div className="rounded-md bg-zinc-900 p-4">
                 <pre className="text-sm text-zinc-300 font-mono">
-{`open ──→ workers apply ──→ creator selects ──→ accepted workers submit
+{`open ──→ workers apply ──→ creator accepts ──→ accepted workers submit
   │                                                    │
   │                                              pick winner ──→ completed
-  │                                                    ↑
-  │                                  disputed ─────────┘
-  │                                  (AI resolves)
+  │                                                    │
+  │                                               dispute ──→ AI resolves ──→ completed
+  │
   └──→ cancelled (creator cancels, funds returned)`}
                 </pre>
               </div>
@@ -953,24 +1028,16 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
                       desc="Task is live — accepting applications and submissions from accepted applicants"
                     />
                     <StatusRow
-                      status="in_progress"
-                      desc="A worker has been assigned (legacy single-worker mode)"
-                    />
-                    <StatusRow
-                      status="submitted"
-                      desc="Worker has submitted evidence for review"
+                      status="disputed"
+                      desc="Creator disputed submissions, AI is resolving (transitions to completed automatically)"
                     />
                     <StatusRow
                       status="completed"
-                      desc="Winner picked, funds released"
-                    />
-                    <StatusRow
-                      status="disputed"
-                      desc="Creator disputed, pending AI resolution"
+                      desc="Winner picked or dispute resolved, funds released or returned"
                     />
                     <StatusRow
                       status="cancelled"
-                      desc="Creator cancelled, funds returned"
+                      desc="Creator cancelled, escrowed funds returned"
                     />
                   </tbody>
                 </table>
@@ -987,8 +1054,8 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
               All task payments are held in escrow via Yellow Network state
-              channels. Funds are only released when a winner is picked or a
-              dispute is resolved.
+              channels. Funds are only released when a winner is picked or the
+              task is cancelled.
             </p>
 
             <div className="mt-6 space-y-6">
@@ -1024,8 +1091,9 @@ pick_winner({ task_id: "abc-123", submission_id: "sub-1" })
                     </span>
                     <span>
                       <strong className="text-foreground">Winner picked</strong>{" "}
-                      — The platform closes the session and directs the full USDC
-                      amount to the winner&rsquo;s wallet address.
+                      — The 2-party session is transitioned to a 3-party session
+                      (adding the winner), then closed &mdash; directing the full
+                      USDC amount to the winner&rsquo;s wallet address.
                     </span>
                   </li>
                 </ol>

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { authenticateUser } from "@/modules/users/auth";
 import { withdrawFromYellow, withdrawFromYellowTestnet } from "@/modules/yellow/server/funds";
 import { serverData } from "@/modules/general/utils/server-constants";
+import { db } from "@/modules/db";
+import { withdrawals } from "@/modules/db/schema";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const auth = await authenticateUser(req);
@@ -50,6 +53,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Create pending withdrawal record
+  const [withdrawal] = await db
+    .insert(withdrawals)
+    .values({
+      userId: user.id,
+      amount,
+      destinationAddress,
+      status: "pending",
+    })
+    .returning();
+
   try {
     const withdraw = serverData.isTestnet ? withdrawFromYellowTestnet : withdrawFromYellow;
     const result = await withdraw({
@@ -59,13 +73,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       destinationAddress,
     });
 
+    // Update withdrawal record with tx hashes
+    await db
+      .update(withdrawals)
+      .set({
+        custodyTxHash: result.custodyTxHash,
+        transferTxHash: result.txHash,
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .where(eq(withdrawals.id, withdrawal.id));
+
     return NextResponse.json({
-      tx_hash: result.txHash,
+      withdrawal_id: withdrawal.id,
+      custody_tx_hash: result.custodyTxHash,
+      transfer_tx_hash: result.txHash,
       amount,
       destination: destinationAddress,
     });
   } catch (err) {
     console.error("Withdrawal failed:", err);
+
+    // Mark withdrawal as failed
+    await db
+      .update(withdrawals)
+      .set({ status: "failed" })
+      .where(eq(withdrawals.id, withdrawal.id));
+
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Withdrawal failed" },
       { status: 500 },

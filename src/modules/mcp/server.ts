@@ -60,7 +60,7 @@ export function createMcpServer(user: User): McpServer {
 
   server.tool(
     "list_tasks",
-    "List tasks. Optionally filter by status (open, in_progress, submitted, completed, cancelled, disputed).",
+    "List tasks. Optionally filter by status (open, completed, cancelled).",
     {
       status: z.string().optional().describe("Filter by task status"),
     },
@@ -122,10 +122,12 @@ export function createMcpServer(user: User): McpServer {
 
   server.tool(
     "pick_winner",
-    "Select the winning submission for a task. This releases the escrowed USDC to the winner's wallet instantly.",
+    "Select the winning submission for a task. This releases the escrowed USDC to the winner's wallet instantly. A rating (1-5) is required.",
     {
       task_id: z.string().describe("The task ID (UUID)"),
       submission_id: z.string().describe("The ID of the winning submission (UUID)"),
+      rating: z.number().int().min(1).max(5).describe("Rating for the worker (1-5)"),
+      review: z.string().optional().describe("Optional review comment"),
     },
     async ({ task_id, submission_id }) => {
       try {
@@ -289,7 +291,7 @@ export function createMcpServer(user: User): McpServer {
 
   server.tool(
     "get_balance",
-    "Check your USDC wallet balance and Yellow Network custody balance.",
+    "Check your USDC balance, wallet address, and API key.",
     {},
     async () => {
       try {
@@ -380,6 +382,179 @@ export function createMcpServer(user: User): McpServer {
             {
               type: "text" as const,
               text: `Error: ${err instanceof Error ? err.message : "Failed to get messages"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "apply_to_task",
+    "Apply to work on a task. You must be accepted by the task creator before you can submit work.",
+    {
+      task_id: z.string().describe("The task ID (UUID)"),
+      message: z.string().optional().describe("Application message explaining why you're a good fit"),
+    },
+    async ({ task_id, message }) => {
+      try {
+        const result = await tools.applyToTask(user as never, {
+          task_id,
+          message,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to apply"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "submit_work",
+    "Submit work for a task you have an accepted application on. Include evidence notes describing what you did.",
+    {
+      task_id: z.string().describe("The task ID (UUID)"),
+      evidence_notes: z.string().describe("Description of the work done and evidence of completion"),
+      attachment_url: z.string().optional().describe("Optional URL to attachment/proof"),
+    },
+    async ({ task_id, evidence_notes, attachment_url }) => {
+      try {
+        const result = await tools.submitWork(user as never, {
+          task_id,
+          evidence_notes,
+          attachment_url,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to submit work"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "withdraw",
+    "Withdraw USDC from your Yellow Network balance to an external wallet address.",
+    {
+      amount: z.string().describe("Amount of USDC to withdraw (e.g. '5.00')"),
+      destination_address: z.string().describe("Ethereum address to send USDC to (0x...)"),
+    },
+    async ({ amount, destination_address }) => {
+      try {
+        const result = await tools.withdraw(user as never, {
+          amount,
+          destination_address,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to withdraw"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "deposit",
+    "Deposit USDC to your Yellow Network balance. On testnet, uses the sandbox faucet. On production, moves USDC from your server wallet to Yellow custody — send USDC to your server wallet address first (shown in get_balance).",
+    {
+      amount: z.string().describe("Amount of USDC to deposit (e.g. '10.00')"),
+    },
+    async ({ amount }) => {
+      try {
+        const result = await tools.deposit(user as never, { amount });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to deposit"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "dispute_task",
+    "Dispute submissions on your task. An AI judge evaluates the task description, submissions, and your dispute reason to decide who wins. If the AI sides with a worker, their submission wins and they get paid. If the AI sides with you, the task is cancelled and funds are returned.",
+    {
+      task_id: z.string().describe("The task ID (UUID)"),
+      reason: z.string().describe("Why the submissions are inadequate — be specific"),
+    },
+    async ({ task_id, reason }) => {
+      try {
+        const result = await tools.disputeTask(user as never, {
+          task_id,
+          reason,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: ${err instanceof Error ? err.message : "Failed to dispute task"}`,
             },
           ],
           isError: true,

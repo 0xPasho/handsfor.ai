@@ -1,30 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withX402 } from "@x402/next";
-import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
-import { registerExactEvmScheme } from "@x402/evm/exact/server";
-import { decodePaymentSignatureHeader } from "@x402/core/http";
 import { eq, and, sql, type SQL } from "drizzle-orm";
-import { randomBytes } from "crypto";
 import { PrivyClient } from "@privy-io/node";
 import { db } from "@/modules/db";
 import { users, tasks, applications } from "@/modules/db/schema";
 import { serverData } from "@/modules/general/utils/server-constants";
 import { type Address } from "viem";
-import { depositAndAllocateForUser, depositAndAllocateForUserTestnet } from "@/modules/yellow/server/funds";
+import { depositAndAllocateForUserTestnet } from "@/modules/yellow/server/funds";
 import { createInitialTaskSession } from "@/modules/yellow/server/platform";
-import { generateUniqueUsername } from "@/modules/identity/username";
-import { resolveAllIdentities } from "@/modules/identity/resolve";
+import { getYellowUnifiedBalance } from "@/modules/yellow/server/balance";
+import { authenticateUser } from "@/modules/users/auth";
 
 const privy = new PrivyClient({
   appId: serverData.environment.PRIVY_APP_ID,
   appSecret: serverData.environment.PRIVY_APP_SECRET,
 });
-
-// Production only: x402 facilitator + resource server (not needed on testnet)
-const facilitatorClient = new HTTPFacilitatorClient({ url: "https://x402.org/facilitator" });
-const x402Server = new x402ResourceServer(facilitatorClient);
-registerExactEvmScheme(x402Server, {});
-const x402Network = "eip155:8453";
 
 /**
  * Testnet handler: authenticates via Privy token, creates Yellow session
@@ -118,119 +107,45 @@ async function handleCreateTaskTestnet(req: NextRequest, amountUsdc: string): Pr
 }
 
 /**
- * Production handler: extracts payer info from x402 payment header,
- * deposits USDC to Yellow custody, and creates session.
+ * Production handler: creates task from existing Yellow balance.
+ * User must deposit first via /api/users/deposit.
  */
-async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
-  const paymentHeader =
-    req.headers.get("payment-signature") || req.headers.get("x-payment");
-
-  if (!paymentHeader) {
-    return NextResponse.json({ error: "Missing payment header" }, { status: 400 });
+async function handleCreateTaskFromBalance(req: NextRequest, amountUsdc: string): Promise<NextResponse> {
+  const authResult = await authenticateUser(req);
+  if (!authResult.success) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const paymentPayload = decodePaymentSignatureHeader(paymentHeader);
+  const user = authResult.user;
 
-  const authorization = paymentPayload.payload?.authorization as
-    | { from?: string }
-    | undefined;
-  const payerAddress = authorization?.from?.toLowerCase();
-
-  if (!payerAddress) {
+  if (!user.privyWalletId) {
     return NextResponse.json(
-      { error: "Could not extract payer address" },
+      { error: "No server wallet configured. Deposit USDC first at /api/users/deposit" },
       { status: 400 },
     );
   }
 
-  const amountAtomic = paymentPayload.accepted?.amount ?? "0";
-  const amountUsdc = (parseInt(amountAtomic, 10) / 1e6).toString();
-
-  // Find existing user by their external (payer) address
-  const [existingUser] = await db
-    .select()
-    .from(users)
-    .where(eq(users.externalWalletAddress, payerAddress))
-    .limit(1);
-
-  let user = existingUser;
-  let isNewUser = false;
-
-  if (!user) {
-    const privyUser = await privy.users().create({
-      linked_accounts: [
-        { type: "wallet", chain_type: "ethereum", address: payerAddress },
-      ],
-    });
-
-    const wallet = await privy.wallets().create({
-      chain_type: "ethereum",
-      owner: { public_key: serverData.environment.PRIVY_AUTHORIZATION_PUBLIC_KEY },
-    });
-
-    const apiKey = `sk_${randomBytes(32).toString("hex")}`;
-    const username = await generateUniqueUsername();
-    const [inserted] = await db
-      .insert(users)
-      .values({
-        walletAddress: wallet.address,
-        privyWalletId: wallet.id,
-        privyUserId: privyUser.id,
-        externalWalletAddress: payerAddress,
-        apiKey,
-        balance: "0",
-        username,
-      })
-      .returning();
-    user = inserted;
-    isNewUser = true;
-
-    // Fire-and-forget ENS/Base resolution for new x402 users
-    resolveAllIdentities(payerAddress as Address).then(async (result) => {
-      try {
-        const identityUpdates: Record<string, string | null> = {};
-        if (result.ens) {
-          identityUpdates.ensName = result.ens.name;
-          identityUpdates.ensAvatar = result.ens.avatar;
-          identityUpdates.activeIdentity = "ens";
-        } else if (result.baseName) {
-          identityUpdates.baseName = result.baseName.name;
-          identityUpdates.baseAvatar = result.baseName.avatar;
-          identityUpdates.activeIdentity = "base";
-        }
-        if (Object.keys(identityUpdates).length > 0) {
-          await db.update(users).set(identityUpdates).where(eq(users.id, inserted.id));
-        }
-      } catch {
-        // identity resolution failed, continue
-      }
-    }).catch(() => {});
+  // Check Yellow balance
+  let yellowBalance: string;
+  try {
+    yellowBalance = await getYellowUnifiedBalance(user.id, user.privyWalletId, user.walletAddress);
+  } catch {
+    return NextResponse.json(
+      { error: "Could not query Yellow balance" },
+      { status: 500 },
+    );
   }
 
-  if (!user.privyWalletId) {
-    let privyUserId = user.privyUserId;
-    if (!privyUserId) {
-      const privyUser = await privy.users().create({
-        linked_accounts: [
-          { type: "wallet", chain_type: "ethereum", address: payerAddress },
-        ],
-      });
-      privyUserId = privyUser.id;
-    }
-
-    const wallet = await privy.wallets().create({
-      chain_type: "ethereum",
-      owner: { public_key: serverData.environment.PRIVY_AUTHORIZATION_PUBLIC_KEY },
-    });
-    await db
-      .update(users)
-      .set({
-        privyWalletId: wallet.id,
-        privyUserId,
-        walletAddress: wallet.address,
-      })
-      .where(eq(users.id, user.id));
-    user = { ...user, privyWalletId: wallet.id, privyUserId, walletAddress: wallet.address };
+  if (parseFloat(yellowBalance) < parseFloat(amountUsdc)) {
+    return NextResponse.json(
+      {
+        error: "Insufficient Yellow balance",
+        required: amountUsdc,
+        available: yellowBalance,
+        deposit_url: "/api/users/deposit",
+      },
+      { status: 402 },
+    );
   }
 
   let description: string | undefined;
@@ -251,17 +166,10 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Description must be 5000 characters or less" }, { status: 400 });
   }
 
-  await depositAndAllocateForUser({
-    userId: user.id,
-    privyWalletId: user.privyWalletId!,
-    walletAddress: user.walletAddress,
-    amount: amountUsdc,
-  });
-
   const { appSessionId } = await createInitialTaskSession({
     creatorAddress: user.walletAddress as Address,
     userId: user.id,
-    privyWalletId: user.privyWalletId!,
+    privyWalletId: user.privyWalletId,
     amount: amountUsdc,
   });
 
@@ -287,7 +195,6 @@ async function handleCreateTask(req: NextRequest): Promise<NextResponse> {
     task_id: task.id,
     user_id: user.id,
     wallet_address: user.walletAddress,
-    ...(isNewUser ? { api_key: user.apiKey } : {}),
   });
 }
 
@@ -388,21 +295,6 @@ export async function POST(req: NextRequest) {
     return handleCreateTaskTestnet(req, amount);
   }
 
-  // Production: x402 payment flow with remote facilitator on Base
-  const price = `$${amount}`;
-  const handler = withX402(
-    handleCreateTask,
-    {
-      accepts: {
-        scheme: "exact",
-        payTo: serverData.environment.PLATFORM_WALLET_ADDRESS,
-        price,
-        network: x402Network,
-      },
-      description: "Create a task",
-    },
-    x402Server,
-  );
-
-  return handler(req);
+  // Production: draw from existing Yellow balance (deposit via /api/users/deposit first)
+  return handleCreateTaskFromBalance(req, amount);
 }

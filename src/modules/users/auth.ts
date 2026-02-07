@@ -21,7 +21,8 @@ const privy = new PrivyClient({
  * Authenticate a user from a request using one of:
  *   Option A: Authorization: Bearer <privy_token>
  *   Option B: X-API-Key header
- *   Option C: X-Signature + X-Timestamp + X-User-Id headers
+ *   Option C: X-Signature + X-Timestamp + X-User-Id headers (server wallet)
+ *   Option D: X-Signature + X-Timestamp + X-Wallet-Address headers (external wallet)
  */
 export async function authenticateUser(req: NextRequest): Promise<AuthResult> {
   // Option A: Privy Bearer token
@@ -62,12 +63,11 @@ export async function authenticateUser(req: NextRequest): Promise<AuthResult> {
     return { success: true, user };
   }
 
-  // Option C: Wallet signature
+  // Shared: signature + timestamp
   const signature = req.headers.get("x-signature") as `0x${string}` | null;
   const timestamp = req.headers.get("x-timestamp");
-  const userId = req.headers.get("x-user-id");
 
-  if (!signature || !timestamp || !userId) {
+  if (!signature || !timestamp) {
     return { success: false, error: "Missing authentication", status: 401 };
   }
 
@@ -77,26 +77,59 @@ export async function authenticateUser(req: NextRequest): Promise<AuthResult> {
     return { success: false, error: "Timestamp expired or invalid", status: 401 };
   }
 
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+  // Option C: Wallet signature with user ID (legacy — verifies against server wallet)
+  const userId = req.headers.get("x-user-id");
+  if (userId) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-  if (!user) {
-    return { success: false, error: "User not found", status: 401 };
+    if (!user) {
+      return { success: false, error: "User not found", status: 401 };
+    }
+
+    const message = `${timestamp}:${userId}`;
+    const valid = await verifyMessage({
+      address: user.walletAddress as `0x${string}`,
+      message,
+      signature,
+    });
+
+    if (!valid) {
+      return { success: false, error: "Invalid signature", status: 401 };
+    }
+
+    return { success: true, user };
   }
 
-  const message = `${timestamp}:${userId}`;
-  const valid = await verifyMessage({
-    address: user.walletAddress as `0x${string}`,
-    message,
-    signature,
-  });
+  // Option D: Wallet signature with external wallet address
+  const walletAddress = req.headers.get("x-wallet-address")?.toLowerCase();
+  if (walletAddress) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.externalWalletAddress, walletAddress))
+      .limit(1);
 
-  if (!valid) {
-    return { success: false, error: "Invalid signature", status: 401 };
+    if (!user) {
+      return { success: false, error: "No account found for this wallet", status: 401 };
+    }
+
+    const message = `${timestamp}`;
+    const valid = await verifyMessage({
+      address: walletAddress as `0x${string}`,
+      message,
+      signature,
+    });
+
+    if (!valid) {
+      return { success: false, error: "Invalid signature", status: 401 };
+    }
+
+    return { success: true, user };
   }
 
-  return { success: true, user };
+  return { success: false, error: "Missing authentication", status: 401 };
 }

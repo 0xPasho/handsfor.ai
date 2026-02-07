@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/modules/shared/components/ui/select";
-import { MapPin, Globe, DollarSign, LayoutDashboard, Check, X, Loader2 } from "lucide-react";
+import { MapPin, Globe, DollarSign, LayoutDashboard, Eye, Check, X, Loader2, ArrowLeft } from "lucide-react";
 
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
@@ -197,6 +197,14 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-[720px] px-6 py-10">
+      <Link
+        href={`/humans/${user?.username || user?.wallet_address || ""}`}
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="size-3.5" />
+        My Profile
+      </Link>
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
@@ -204,13 +212,22 @@ export default function ProfilePage() {
             Your public profile on Hands for AI.
           </p>
         </div>
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground"
-        >
-          <LayoutDashboard className="size-3.5" />
-          Dashboard
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/humans/${user?.username || user?.wallet_address || ""}`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground"
+          >
+            <Eye className="size-3.5" />
+            View Profile
+          </Link>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground"
+          >
+            <LayoutDashboard className="size-3.5" />
+            Dashboard
+          </Link>
+        </div>
       </div>
 
       {/* Avatar + name header */}

@@ -36,13 +36,17 @@ export async function createAndFundChannel(
 ): Promise<{ success: boolean; channelId?: string; error?: string }> {
   const chainId = getDefaultChainId();
 
-  // Check for an existing open channel first
+  // Check for an existing open channel that matches our token + chain
   const existingChannels = await listUserChannels(conn);
   let channelId: string;
 
-  if (existingChannels.length > 0) {
-    channelId = existingChannels[0].channelId;
-    console.log(`[Channel] Reusing existing channel: ${channelId}`);
+  const matchingChannel = existingChannels.find(
+    (ch) => ch.token.toLowerCase() === tokenAddress.toLowerCase() && ch.chainId === chainId
+  );
+
+  if (matchingChannel) {
+    channelId = matchingChannel.channelId;
+    console.log(`[Channel] Reusing existing channel: ${channelId} (token: ${tokenAddress}, chain: ${chainId})`);
   } else {
     // Step 1: Request channel creation from Yellow
     console.log(`[Channel] Requesting channel creation for token ${tokenAddress} on chain ${chainId}...`);

@@ -21,7 +21,15 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/modules/shared/components/ui/dropdown-menu";
-import { User, LayoutDashboard, LogOut, Menu, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/modules/shared/components/ui/dialog";
+import { CopyButton } from "@/components/copy-button";
+import { User, LayoutDashboard, LogOut, Menu, X, Settings, Key } from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/tasks", label: "Tasks" },
@@ -33,6 +41,7 @@ export function Nav() {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { user: userData } = useUser();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const pathname = usePathname();
 
   const walletAddress = user?.wallet?.address;
@@ -72,6 +81,7 @@ export function Nav() {
             {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
           {!ready ? null : authenticated ? (
+            <>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2.5 rounded-full border border-border bg-card px-3 py-1.5 outline-none transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-ring">
@@ -107,9 +117,15 @@ export function Nav() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/profile">
+                  <Link href={`/humans/${userData?.username || walletAddress || ""}`}>
                     <User className="size-4" />
                     Profile
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/settings">
+                    <Settings className="size-4" />
+                    Settings
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -118,6 +134,10 @@ export function Nav() {
                     Dashboard
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setApiKeyOpen(true)}>
+                  <Key className="size-4" />
+                  API Key
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout}>
                   <LogOut className="size-4" />
@@ -125,6 +145,36 @@ export function Nav() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* API Key modal */}
+            <Dialog open={apiKeyOpen} onOpenChange={setApiKeyOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Key className="size-4" />
+                    API & MCP Access
+                  </DialogTitle>
+                  <DialogDescription>
+                    Use this key to create tasks programmatically or connect an AI agent via MCP.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="rounded-md border border-border bg-card p-4">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+                    API Key
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                      {userData?.api_key}
+                    </code>
+                    <CopyButton text={userData?.api_key || ""} />
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground font-mono">
+                    Header: X-API-Key: {truncAddr(userData?.api_key || "")}
+                  </p>
+                </div>
+              </DialogContent>
+            </Dialog>
+            </>
           ) : (
             <Button size="sm" onClick={login}>
               Log In

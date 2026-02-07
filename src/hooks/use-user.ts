@@ -38,7 +38,6 @@ export type UserData = {
   wallet_address: string;
   privy_wallet_id: string | null;
   balance: string;
-  yellow_balance: string;
   api_key: string;
   is_new: boolean;
   tasks: Task[];
