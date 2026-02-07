@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "@erc7824/nitrolite": "^0.5.3",
+    "@lifi/sdk": "^3.15.5",
+    "@lifi/widget": "^3.40.6",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@mysten/sui": "^2.3.1",
     "@noble/hashes": "^2.0.1",
     "@privy-io/node": "^0.8.0",
     "@privy-io/react-auth": "^3.13.1",

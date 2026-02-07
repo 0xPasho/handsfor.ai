@@ -20,6 +20,7 @@ import {
   DialogDescription,
 } from "@/modules/shared/components/ui/dialog";
 import { truncAddr } from "@/lib/format";
+import { BridgeWidget } from "@/components/bridge-widget";
 import { Wallet, ArrowUpRight, ArrowDownLeft, Key, ArrowLeft } from "lucide-react";
 import type { Task } from "@/hooks/use-user";
 
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const [depositing, setDepositing] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
+  const [bridgeOpen, setBridgeOpen] = useState(false);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -328,8 +330,27 @@ export default function DashboardPage() {
               {depositing ? "Depositing..." : "Deposit"}
             </Button>
           </div>
+          <Separator />
+          <p className="text-xs text-muted-foreground">
+            Don&rsquo;t have USDC on Base?{" "}
+            <button
+              onClick={() => {
+                setDepositOpen(false);
+                setBridgeOpen(true);
+              }}
+              className="underline hover:text-foreground"
+            >
+              Bridge from any chain
+            </button>
+          </p>
         </DialogContent>
       </Dialog>
+
+      <BridgeWidget
+        open={bridgeOpen}
+        onOpenChange={setBridgeOpen}
+        toAddress={user.wallet_address}
+      />
 
       {/* Quick stats */}
       <div className="mt-6 grid grid-cols-4 gap-3">

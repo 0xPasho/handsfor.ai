@@ -254,9 +254,9 @@ export async function sponsorGas(userAddress: string): Promise<void> {
 
   const publicClient = createPublicClient({ chain, transport: http() });
 
-  // Check if user already has enough ETH for gas (~0.002 ETH covers deposit + approve)
+  // Check if user already has enough ETH for gas
   const balance = await publicClient.getBalance({ address: userAddress as Address });
-  const minGasBalance = parseUnits("0.002", 18);
+  const minGasBalance = parseUnits(serverData.environment.GAS_SPONSOR_MIN_BALANCE, 18);
   if (balance >= minGasBalance) {
     console.log(`[Gas Sponsor] ${userAddress} already has sufficient ETH`);
     return;
@@ -268,14 +268,15 @@ export async function sponsorGas(userAddress: string): Promise<void> {
     transport: http(),
   });
 
-  const sponsorAmount = parseUnits("0.005", 18); // ~0.005 ETH for multiple operations
+  const gasAmount = serverData.environment.GAS_SPONSOR_AMOUNT;
+  const sponsorAmount = parseUnits(gasAmount, 18);
   const txHash = await walletClient.sendTransaction({
     to: userAddress as Address,
     value: sponsorAmount,
   });
 
   await publicClient.waitForTransactionReceipt({ timeout: 120_000, hash: txHash });
-  console.log(`[Gas Sponsor] Sent 0.005 ETH to ${userAddress}: ${txHash}`);
+  console.log(`[Gas Sponsor] Sent ${gasAmount} ETH to ${userAddress}: ${txHash}`);
 }
 
 /**

@@ -103,6 +103,7 @@ export async function POST(
   }
 
   // Yellow session: transition 2-party → 3-party with winner, then close with funds to winner
+  let yellowSettled = false;
   if (task.appSessionId) {
     const { appSessionId } = await transitionToWorkerSession({
       existingAppSessionId: task.appSessionId,
@@ -122,34 +123,55 @@ export async function POST(
       amount: task.amount,
       winner: "acceptor",
     });
+    yellowSettled = true;
   }
 
-  // Mark submission as winner
-  await db
-    .update(submissions)
-    .set({ isWinner: true })
-    .where(eq(submissions.id, submissionId));
+  // All DB updates in a single transaction — retry once if it fails after Yellow settled
+  const finalizeDb = () =>
+    db.transaction(async (tx) => {
+      await tx
+        .update(submissions)
+        .set({ isWinner: true })
+        .where(eq(submissions.id, submissionId));
 
-  // Update task
-  await db
-    .update(tasks)
-    .set({
-      status: "completed",
-      resolution: "acceptor_wins",
-      acceptorId: winner.id,
-      winnerSubmissionId: submissionId,
-      completedAt: new Date(),
-    })
-    .where(eq(tasks.id, task.id));
+      await tx
+        .update(tasks)
+        .set({
+          status: "completed",
+          resolution: "acceptor_wins",
+          acceptorId: winner.id,
+          winnerSubmissionId: submissionId,
+          completedAt: new Date(),
+        })
+        .where(eq(tasks.id, task.id));
 
-  // Save review
-  await db.insert(reviews).values({
-    taskId: task.id,
-    reviewerId: user.id,
-    revieweeId: submission.workerId,
-    rating: String(rating),
-    comment: review?.trim() || null,
-  });
+      await tx.insert(reviews).values({
+        taskId: task.id,
+        reviewerId: user.id,
+        revieweeId: submission.workerId,
+        rating: String(rating),
+        comment: review?.trim() || null,
+      });
+    });
+
+  try {
+    await finalizeDb();
+  } catch (dbError) {
+    if (!yellowSettled) throw dbError;
+    console.error(`[CRITICAL] Yellow settled but DB failed for task ${task.id}:`, dbError);
+    try {
+      await finalizeDb();
+    } catch (retryError) {
+      console.error(`[CRITICAL] DB retry failed for task ${task.id}. Winner: ${winner.id}, submission: ${submissionId}. Manual fix needed.`, retryError);
+      return NextResponse.json({
+        task_id: task.id,
+        status: "completed",
+        winner_submission_id: submissionId,
+        winner_wallet: submission.workerWallet,
+        warning: "Payment released but database update failed. Contact support.",
+      });
+    }
+  }
 
   return NextResponse.json({
     task_id: task.id,

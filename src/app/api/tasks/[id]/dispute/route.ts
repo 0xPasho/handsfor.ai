@@ -182,6 +182,8 @@ export async function POST(
     );
   }
 
+  let yellowSettled = false;
+
   if (resolution === "acceptor_wins" && winnerSubmissionId) {
     // AI picked a winner — transition session and pay the worker
     const winningSubmission = taskSubmissions.find((s) => s.id === winnerSubmissionId)!;
@@ -217,23 +219,37 @@ export async function POST(
       amount: task.amount,
       winner: "acceptor",
     });
+    yellowSettled = true;
 
-    // Mark winner
-    await db
-      .update(submissions)
-      .set({ isWinner: true })
-      .where(eq(submissions.id, winnerSubmissionId));
+    const finalizeDb = () =>
+      db.transaction(async (tx) => {
+        await tx
+          .update(submissions)
+          .set({ isWinner: true })
+          .where(eq(submissions.id, winnerSubmissionId));
 
-    await db
-      .update(tasks)
-      .set({
-        status: "completed",
-        resolution: "acceptor_wins",
-        acceptorId: winner.id,
-        winnerSubmissionId,
-        completedAt: new Date(),
-      })
-      .where(eq(tasks.id, task.id));
+        await tx
+          .update(tasks)
+          .set({
+            status: "completed",
+            resolution: "acceptor_wins",
+            acceptorId: winner.id,
+            winnerSubmissionId,
+            completedAt: new Date(),
+          })
+          .where(eq(tasks.id, task.id));
+      });
+
+    try {
+      await finalizeDb();
+    } catch (dbError) {
+      console.error(`[CRITICAL] Dispute: Yellow settled but DB failed for task ${task.id}:`, dbError);
+      try {
+        await finalizeDb();
+      } catch (retryError) {
+        console.error(`[CRITICAL] Dispute: DB retry failed for task ${task.id}. Winner: ${winner.id}. Manual fix needed.`, retryError);
+      }
+    }
   } else {
     // Creator wins — close session returning funds to creator
     await closeTaskAppSession({
@@ -243,15 +259,27 @@ export async function POST(
       amount: task.amount,
       winner: "creator",
     });
+    yellowSettled = true;
 
-    await db
-      .update(tasks)
-      .set({
-        status: "completed",
-        resolution: "creator_wins",
-        completedAt: new Date(),
-      })
-      .where(eq(tasks.id, task.id));
+    const finalizeDb = () =>
+      db.update(tasks)
+        .set({
+          status: "completed",
+          resolution: "creator_wins",
+          completedAt: new Date(),
+        })
+        .where(eq(tasks.id, task.id));
+
+    try {
+      await finalizeDb();
+    } catch (dbError) {
+      console.error(`[CRITICAL] Dispute: Yellow settled but DB failed for task ${task.id}:`, dbError);
+      try {
+        await finalizeDb();
+      } catch (retryError) {
+        console.error(`[CRITICAL] Dispute: DB retry failed for task ${task.id}. Resolution: creator_wins. Manual fix needed.`, retryError);
+      }
+    }
   }
 
   return NextResponse.json({
